@@ -11,7 +11,9 @@ export function StreakPill({ streak }: StreakPillProps) {
   return (
     <View style={styles.pill}>
       <Text style={styles.emoji}>🔥</Text>
-      <Text style={styles.text}>{streak} day{streak === 1 ? '' : 's'}</Text>
+      <Text style={styles.text}>
+        {streak} day{streak === 1 ? '' : 's'}
+      </Text>
     </View>
   );
 }
@@ -21,23 +23,19 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: colors.surface,
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    borderRadius: 999,
-    gap: 6,
-    shadowColor: colors.streak,
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.12,
-    shadowRadius: 8,
-    elevation: 3,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: 14,
+    gap: 5,
     borderWidth: 1,
     borderColor: colors.border,
   },
   emoji: {
-    fontSize: 16,
+    fontSize: 14,
   },
   text: {
     ...typography.label,
     color: colors.text,
+    fontSize: 12,
   },
 });

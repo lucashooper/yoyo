@@ -1,6 +1,8 @@
-import { Audio } from 'expo-av';
+import { Audio, type AVPlaybackStatus } from 'expo-av';
 import type { GrammarCorrection, SupportedLanguage, TranscriptEntry, VoiceSessionState } from '../types';
+import { arrayBufferToBase64, decodeBase64ToArrayBuffer } from './audioEncoding';
 import { detectCorrection } from './corrections';
+import { humanizeError, logger } from './logger';
 import { getVoiceForLanguage } from './voiceService';
 
 const API_KEY = process.env.EXPO_PUBLIC_ELEVENLABS_API_KEY ?? '';
@@ -13,7 +15,12 @@ export const isElevenLabsAgentConfigured = hasValidKey && hasValidAgent;
 export const isElevenLabsTtsConfigured = hasValidKey && !hasValidAgent;
 export const isElevenLabsConfigured = isElevenLabsAgentConfigured;
 
-const VAD_SILENCE_MS = 600;
+/** Strict VAD — ignore ambient noise / phantom spikes */
+const VAD_SPEECH_THRESHOLD = 0.22;
+const VAD_MIN_SPEECH_MS = 280;
+const VAD_SILENCE_MS = 750;
+const VAD_COOLDOWN_AFTER_TTS_MS = 900;
+
 const MOCK_RESPONSES: Record<SupportedLanguage, string[]> = {
   spanish: [
     '¡Hola! Me alegra practicar contigo. ¿Qué te gustaría pedir en la cafetería?',
@@ -47,6 +54,7 @@ export interface VoiceSessionCallbacks {
   onTranscript: (entry: TranscriptEntry) => void;
   onCorrection: (correction: GrammarCorrection) => void;
   onError: (message: string) => void;
+  onPlaybackProgress?: (progress: number) => void;
 }
 
 export class ElevenLabsVoiceService {
@@ -59,11 +67,19 @@ export class ElevenLabsVoiceService {
   private active = false;
   private mockTurn = 0;
   private lastSpeechAt = 0;
+  private speechStartedAt: number | null = null;
   private vadTimer: ReturnType<typeof setTimeout> | null = null;
   private meteringInterval: ReturnType<typeof setInterval> | null = null;
   private voiceId: string | null = null;
   private ttsMode = false;
   private speakAmplitudeTimer: ReturnType<typeof setInterval> | null = null;
+  private isPlayingAudio = false;
+  private playbackGateUntil = 0;
+  private lastUserTranscript = '';
+  private lastUserTranscriptAt = 0;
+  private hasDetectedUserSpeech = false;
+  private mockPending = false;
+  private sessionState: VoiceSessionState = 'idle';
 
   constructor(
     language: SupportedLanguage,
@@ -75,32 +91,61 @@ export class ElevenLabsVoiceService {
     this.callbacks = callbacks;
   }
 
+  private setState(state: VoiceSessionState) {
+    this.sessionState = state;
+    this.callbacks.onStateChange(state);
+  }
+
   async start(): Promise<void> {
     this.active = true;
-    this.callbacks.onStateChange('connecting');
-
-    const { granted } = await Audio.requestPermissionsAsync();
-    if (!granted) {
-      this.callbacks.onError('Microphone permission is required.');
-      this.callbacks.onStateChange('error');
-      return;
-    }
-
-    await Audio.setAudioModeAsync({
-      allowsRecordingIOS: true,
-      playsInSilentModeIOS: true,
-      staysActiveInBackground: false,
-      shouldDuckAndroid: true,
-      playThroughEarpieceAndroid: false,
+    this.setState('connecting');
+    logger.info('voice', 'Starting voice session', {
+      language: this.language,
+      agent: isElevenLabsAgentConfigured,
+      tts: isElevenLabsTtsConfigured,
     });
 
-    if (isElevenLabsAgentConfigured) {
-      await this.connectWebSocket();
-    } else if (isElevenLabsTtsConfigured) {
-      await this.startTtsSession();
-    } else {
-      await this.startMockSession();
+    try {
+      const { granted } = await Audio.requestPermissionsAsync();
+      if (!granted) {
+        const msg = 'Microphone permission is required.';
+        logger.error('voice', msg);
+        this.callbacks.onError(msg);
+        this.setState('error');
+        return;
+      }
+
+      await Audio.setAudioModeAsync({
+        allowsRecordingIOS: true,
+        playsInSilentModeIOS: true,
+        staysActiveInBackground: false,
+        shouldDuckAndroid: true,
+        playThroughEarpieceAndroid: false,
+      });
+
+      if (isElevenLabsAgentConfigured) {
+        await this.connectWebSocket();
+      } else if (isElevenLabsTtsConfigured) {
+        await this.startTtsSession();
+      } else {
+        logger.warn('voice', 'No ElevenLabs credentials — demo mode');
+        await this.startMockSession();
+      }
+    } catch (err) {
+      const msg = humanizeError(err, 'Failed to start voice session');
+      logger.error('voice', msg, err);
+      this.callbacks.onError(msg);
+      this.setState('error');
     }
+  }
+
+  async reconnect(): Promise<void> {
+    logger.info('voice', 'Reconnecting…');
+    await this.stop();
+    this.mockTurn = 0;
+    this.hasDetectedUserSpeech = false;
+    this.mockPending = false;
+    await this.start();
   }
 
   private async resolveVoiceId(): Promise<string> {
@@ -116,7 +161,8 @@ export class ElevenLabsVoiceService {
       this.ws = new WebSocket(url);
 
       this.ws.onopen = async () => {
-        this.callbacks.onStateChange('listening');
+        logger.info('voice', 'WebSocket connected');
+        this.setState('listening');
         await this.startRecording();
       };
 
@@ -125,18 +171,51 @@ export class ElevenLabsVoiceService {
       };
 
       this.ws.onerror = () => {
-        this.callbacks.onError('Voice connection failed. Falling back to demo mode.');
+        const msg = 'Voice connection failed. Falling back to demo mode.';
+        logger.error('voice', 'WebSocket error — falling back to mock');
+        this.callbacks.onError(msg);
         void this.startMockSession();
       };
 
       this.ws.onclose = () => {
-        if (this.active) {
-          this.callbacks.onStateChange('idle');
+        logger.warn('voice', 'WebSocket closed');
+        if (this.active && this.sessionState !== 'error') {
+          this.setState('idle');
         }
       };
-    } catch {
+    } catch (err) {
+      logger.error('voice', 'WebSocket connect failed', err);
       await this.startMockSession();
     }
+  }
+
+  private emitUserTranscript(text: string) {
+    const cleaned = text.trim();
+    if (!cleaned) return;
+
+    // Deduplicate phantom / repeated STT inserts
+    const now = Date.now();
+    if (
+      cleaned === this.lastUserTranscript &&
+      now - this.lastUserTranscriptAt < 2500
+    ) {
+      logger.debug('voice', 'Dropped duplicate user transcript', cleaned);
+      return;
+    }
+
+    this.lastUserTranscript = cleaned;
+    this.lastUserTranscriptAt = now;
+    this.hasDetectedUserSpeech = true;
+
+    this.callbacks.onTranscript({
+      id: `t_${now}`,
+      role: 'user',
+      text: cleaned,
+      timestamp: now,
+    });
+
+    const correction = detectCorrection(cleaned, this.language);
+    if (correction) this.callbacks.onCorrection(correction);
   }
 
   private handleWebSocketMessage(data: unknown): void {
@@ -153,39 +232,37 @@ export class ElevenLabsVoiceService {
 
       if (type === 'user_transcript' && message.user_transcription_event) {
         const evt = message.user_transcription_event as { user_transcript?: string };
-        const text = evt.user_transcript ?? '';
-        this.callbacks.onTranscript({
-          id: `t_${Date.now()}`,
-          role: 'user',
-          text,
-          timestamp: Date.now(),
-        });
-        const correction = detectCorrection(text, this.language);
-        if (correction) this.callbacks.onCorrection(correction);
+        const text = (evt.user_transcript ?? '').trim();
+        // Only accept STT when we recently detected real speech via VAD
+        if (!this.hasDetectedUserSpeech && text.length < 3) {
+          logger.debug('voice', 'Ignored phantom STT (no VAD speech)', text);
+          return;
+        }
+        this.emitUserTranscript(text);
       }
 
       if (type === 'agent_response' && message.agent_response_event) {
         const evt = message.agent_response_event as { agent_response?: string };
-        const text = evt.agent_response ?? '';
+        const text = (evt.agent_response ?? '').trim();
+        if (!text) return;
         this.callbacks.onTranscript({
           id: `t_${Date.now()}`,
           role: 'assistant',
           text,
           timestamp: Date.now(),
         });
-        this.callbacks.onStateChange('speaking');
+        this.setState('speaking');
       }
 
       if (type === 'audio' && message.audio_event) {
         const evt = message.audio_event as { audio_base_64?: string };
         if (evt.audio_base_64) {
-          const binary = Uint8Array.from(atob(evt.audio_base_64), (c) => c.charCodeAt(0));
-          void this.playAudioChunk(binary.buffer);
+          void this.playAudioChunk(decodeBase64ToArrayBuffer(evt.audio_base_64));
         }
       }
 
       if (type === 'interruption' || type === 'agent_response_correction') {
-        this.callbacks.onStateChange('listening');
+        this.setState('listening');
       }
     } catch {
       // Binary or non-JSON payloads handled elsewhere
@@ -195,88 +272,98 @@ export class ElevenLabsVoiceService {
   private async startTtsSession(): Promise<void> {
     this.ttsMode = true;
     await this.resolveVoiceId();
-    this.callbacks.onStateChange('listening');
+    this.setState('listening');
     await this.startRecording();
-
-    setTimeout(() => {
-      if (!this.active) return;
-      this.simulateMockExchange(true);
-    }, 2500);
+    this.scheduleGreeting(true);
   }
 
   private async startMockSession(): Promise<void> {
-    this.callbacks.onStateChange('listening');
+    this.ttsMode = false;
+    this.setState('listening');
     await this.startRecording();
-
-    setTimeout(() => {
-      if (!this.active) return;
-      this.simulateMockExchange(false);
-    }, 2500);
+    this.scheduleGreeting(false);
   }
 
-  private simulateMockExchange(useTts: boolean): void {
-    const userPhrases = ['Hola, me gusta un café', 'Je suis faim', 'I am agree'];
-    const userText = userPhrases[this.mockTurn % userPhrases.length] ?? 'Hello!';
-
-    this.callbacks.onStateChange('user_speaking');
-    this.callbacks.onAmplitude(0.6);
-
+  /** Greeting only — no phantom user transcripts until VAD fires */
+  private scheduleGreeting(useTts: boolean) {
     setTimeout(() => {
-      this.callbacks.onTranscript({
-        id: `t_${Date.now()}`,
-        role: 'user',
-        text: userText,
-        timestamp: Date.now(),
-      });
-
-      const correction = detectCorrection(userText, this.language);
-      if (correction) this.callbacks.onCorrection(correction);
-
-      this.callbacks.onStateChange('thinking');
-      this.callbacks.onAmplitude(0);
-
-      setTimeout(() => {
-        const responses = MOCK_RESPONSES[this.language];
-        const reply = responses[this.mockTurn % responses.length] ?? responses[0]!;
-
-        this.callbacks.onTranscript({
-          id: `t_${Date.now() + 1}`,
-          role: 'assistant',
-          text: reply,
-          translation: this.language !== 'english' ? 'Demo translation' : undefined,
-          timestamp: Date.now(),
-        });
-
-        this.mockTurn += 1;
-
-        if (useTts && this.ttsMode) {
-          void this.speakText(reply);
-        } else {
-          this.callbacks.onStateChange('speaking');
-          let tick = 0;
-          const speakInterval = setInterval(() => {
-            this.callbacks.onAmplitude(0.3 + Math.sin(tick) * 0.2);
-            tick += 1;
-          }, 120);
-
-          setTimeout(() => {
-            clearInterval(speakInterval);
-            this.callbacks.onAmplitude(0);
-            this.callbacks.onStateChange('listening');
-
-            if (this.active && this.mockTurn < 4) {
-              setTimeout(() => this.simulateMockExchange(false), 4000);
-            }
-          }, 2800);
-        }
-      }, 1400);
+      if (!this.active || this.mockPending) return;
+      this.mockPending = true;
+      void this.playAssistantGreeting(useTts);
     }, 1200);
+  }
+
+  private async playAssistantGreeting(useTts: boolean) {
+    const responses = MOCK_RESPONSES[this.language];
+    const reply = responses[0]!;
+
+    this.callbacks.onTranscript({
+      id: `t_${Date.now()}`,
+      role: 'assistant',
+      text: reply,
+      translation: this.language !== 'english' ? 'Demo translation' : undefined,
+      timestamp: Date.now(),
+    });
+    this.mockTurn = 1;
+
+    if (useTts) {
+      await this.speakText(reply);
+    } else {
+      await this.simulateSpeakingAmplitude(2400);
+      if (this.active) this.setState('listening');
+    }
+    this.mockPending = false;
+  }
+
+  private async simulateSpeakingAmplitude(durationMs: number) {
+    this.setState('speaking');
+    this.startSpeakAmplitudeAnimation();
+    await new Promise((r) => setTimeout(r, durationMs));
+    this.stopSpeakAmplitudeAnimation();
+  }
+
+  /** After real user speech (VAD), generate a mock / TTS reply — never invent user text */
+  private async respondAfterUserSpeech(useTts: boolean) {
+    if (!this.active || this.mockPending || this.isPlayingAudio) return;
+    this.mockPending = true;
+    this.setState('thinking');
+    this.callbacks.onAmplitude(0);
+
+    await new Promise((r) => setTimeout(r, 900));
+    if (!this.active) {
+      this.mockPending = false;
+      return;
+    }
+
+    const responses = MOCK_RESPONSES[this.language];
+    const reply = responses[this.mockTurn % responses.length] ?? responses[0]!;
+
+    this.callbacks.onTranscript({
+      id: `t_${Date.now()}`,
+      role: 'assistant',
+      text: reply,
+      translation: this.language !== 'english' ? 'Demo translation' : undefined,
+      timestamp: Date.now(),
+    });
+    this.mockTurn += 1;
+
+    if (useTts && this.ttsMode) {
+      await this.speakText(reply);
+    } else {
+      await this.simulateSpeakingAmplitude(2600);
+      if (this.active) this.setState('listening');
+    }
+    this.mockPending = false;
   }
 
   private async speakText(text: string): Promise<void> {
     try {
       const voiceId = await this.resolveVoiceId();
-      this.callbacks.onStateChange('speaking');
+      this.setState('speaking');
+      logger.info('voice', 'TTS request', { chars: text.length, voiceId });
+
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 20000);
 
       const response = await fetch(
         `https://api.elevenlabs.io/v1/text-to-speech/${voiceId}/stream`,
@@ -291,23 +378,29 @@ export class ElevenLabsVoiceService {
             text,
             model_id: 'eleven_multilingual_v2',
           }),
+          signal: controller.signal,
         },
       );
+      clearTimeout(timeout);
 
       if (!response.ok) {
-        throw new Error('TTS request failed');
+        const body = await response.text().catch(() => '');
+        throw new Error(`ElevenLabs TTS failed (${response.status}): ${body.slice(0, 120)}`);
       }
 
       const buffer = await response.arrayBuffer();
+      if (!buffer.byteLength) {
+        throw new Error('ElevenLabs returned empty audio');
+      }
+
       this.startSpeakAmplitudeAnimation();
       await this.playAudioChunk(buffer);
-    } catch {
-      this.callbacks.onStateChange('listening');
-      this.callbacks.onAmplitude(0);
-
-      if (this.active && this.mockTurn < 4) {
-        setTimeout(() => this.simulateMockExchange(true), 4000);
-      }
+    } catch (err) {
+      const msg = humanizeError(err, 'ElevenLabs API failure');
+      logger.error('voice', msg, err);
+      this.callbacks.onError(msg);
+      this.stopSpeakAmplitudeAnimation();
+      this.setState('listening');
     }
   }
 
@@ -328,10 +421,70 @@ export class ElevenLabsVoiceService {
     this.callbacks.onAmplitude(0);
   }
 
+  private async pauseMeteringForPlayback() {
+    this.isPlayingAudio = true;
+    this.playbackGateUntil = Date.now() + VAD_COOLDOWN_AFTER_TTS_MS;
+    if (this.meteringInterval) {
+      clearInterval(this.meteringInterval);
+      this.meteringInterval = null;
+    }
+  }
+
+  private async resumeMeteringAfterPlayback() {
+    this.isPlayingAudio = false;
+    this.playbackGateUntil = Date.now() + VAD_COOLDOWN_AFTER_TTS_MS;
+    this.speechStartedAt = null;
+    this.lastSpeechAt = Date.now();
+    if (this.active && !this.meteringInterval && this.recording) {
+      this.attachMetering();
+    }
+  }
+
+  private attachMetering() {
+    if (this.meteringInterval) clearInterval(this.meteringInterval);
+
+    this.meteringInterval = setInterval(async () => {
+      if (!this.recording || !this.active || this.isPlayingAudio) return;
+      if (Date.now() < this.playbackGateUntil) {
+        this.callbacks.onAmplitude(0);
+        return;
+      }
+
+      try {
+        const status = await this.recording.getStatusAsync();
+        if (!status.isRecording || status.metering == null) return;
+
+        const normalized = Math.max(0, Math.min(1, (status.metering + 60) / 60));
+        this.callbacks.onAmplitude(normalized);
+
+        if (normalized >= VAD_SPEECH_THRESHOLD) {
+          if (this.speechStartedAt == null) {
+            this.speechStartedAt = Date.now();
+          }
+          this.lastSpeechAt = Date.now();
+          const speechDuration = Date.now() - this.speechStartedAt;
+          if (speechDuration >= VAD_MIN_SPEECH_MS) {
+            this.hasDetectedUserSpeech = true;
+            if (this.active) this.setState('user_speaking');
+            this.resetVadTimer();
+          }
+        } else if (
+          this.speechStartedAt != null &&
+          Date.now() - this.lastSpeechAt > VAD_SILENCE_MS
+        ) {
+          void this.flushAudioChunk();
+        }
+      } catch (err) {
+        logger.debug('voice', 'Metering tick failed', err);
+      }
+    }, 100);
+  }
+
   private async startRecording(): Promise<void> {
     try {
       if (this.recording) {
         await this.recording.stopAndUnloadAsync();
+        this.recording = null;
       }
 
       const recording = new Audio.Recording();
@@ -342,25 +495,12 @@ export class ElevenLabsVoiceService {
       await recording.startAsync();
       this.recording = recording;
       this.lastSpeechAt = Date.now();
-
-      this.meteringInterval = setInterval(async () => {
-        if (!this.recording) return;
-        const status = await this.recording.getStatusAsync();
-        if (!status.isRecording || status.metering == null) return;
-
-        const normalized = Math.max(0, Math.min(1, (status.metering + 60) / 60));
-        this.callbacks.onAmplitude(normalized);
-
-        if (normalized > 0.12) {
-          this.lastSpeechAt = Date.now();
-          if (this.active) this.callbacks.onStateChange('user_speaking');
-          this.resetVadTimer();
-        } else if (Date.now() - this.lastSpeechAt > VAD_SILENCE_MS) {
-          void this.flushAudioChunk();
-        }
-      }, 100);
+      this.speechStartedAt = null;
+      this.attachMetering();
     } catch (err) {
-      this.callbacks.onError(err instanceof Error ? err.message : 'Recording failed');
+      const msg = humanizeError(err, 'Recording failed');
+      logger.error('voice', msg, err);
+      this.callbacks.onError(msg);
     }
   }
 
@@ -372,7 +512,16 @@ export class ElevenLabsVoiceService {
   }
 
   private async flushAudioChunk(): Promise<void> {
-    if (!this.recording || !this.active) return;
+    if (!this.recording || !this.active || this.isPlayingAudio) return;
+
+    const spokeLongEnough =
+      this.speechStartedAt != null &&
+      Date.now() - this.speechStartedAt >= VAD_MIN_SPEECH_MS;
+
+    if (!spokeLongEnough) {
+      this.speechStartedAt = null;
+      return;
+    }
 
     try {
       const status = await this.recording.getStatusAsync();
@@ -383,57 +532,105 @@ export class ElevenLabsVoiceService {
         if (uri) {
           const response = await fetch(uri);
           const buffer = await response.arrayBuffer();
-          this.ws.send(buffer);
+          if (buffer.byteLength > 0) {
+            this.ws.send(buffer);
+            logger.debug('voice', 'Sent audio chunk to STT', { bytes: buffer.byteLength });
+          }
         }
-        this.callbacks.onStateChange('thinking');
+        this.setState('thinking');
+      } else if (!isElevenLabsAgentConfigured) {
+        // Demo / TTS path: acknowledge real speech without inventing transcript text
+        this.setState('thinking');
+        logger.info('voice', 'VAD speech end — requesting demo reply');
+        void this.respondAfterUserSpeech(this.ttsMode);
       }
 
+      this.speechStartedAt = null;
       await this.recording.stopAndUnloadAsync();
       this.recording = null;
-      await this.startRecording();
-    } catch {
-      // Continue listening on flush errors
+      if (this.active && !this.isPlayingAudio) {
+        await this.startRecording();
+      }
+    } catch (err) {
+      logger.warn('voice', 'Flush audio failed', err);
     }
   }
 
   private async playAudioChunk(buffer: ArrayBuffer): Promise<void> {
     try {
-      this.callbacks.onStateChange('speaking');
-      const base64 = btoa(String.fromCharCode(...new Uint8Array(buffer)));
+      await this.pauseMeteringForPlayback();
+      this.setState('speaking');
+      logger.info('voice', 'Playback start', { bytes: buffer.byteLength });
+
+      // Re-assert silent-switch override before each play (iOS)
+      await Audio.setAudioModeAsync({
+        allowsRecordingIOS: true,
+        playsInSilentModeIOS: true,
+        staysActiveInBackground: false,
+        shouldDuckAndroid: true,
+        playThroughEarpieceAndroid: false,
+      });
+
+      const base64 = arrayBufferToBase64(buffer);
       const uri = `data:audio/mpeg;base64,${base64}`;
 
       if (this.sound) {
         await this.sound.unloadAsync();
+        this.sound = null;
       }
 
-      const { sound } = await Audio.Sound.createAsync({ uri }, { shouldPlay: true });
+      const { sound } = await Audio.Sound.createAsync(
+        { uri },
+        { shouldPlay: true, progressUpdateIntervalMillis: 80 },
+      );
       this.sound = sound;
 
-      sound.setOnPlaybackStatusUpdate((status) => {
-        if (status.isLoaded && status.isPlaying) {
-          const metering = status.volume ?? 0.8;
-          this.callbacks.onAmplitude(Math.min(1, metering * 0.9));
-        }
-        if (status.isLoaded && status.didJustFinish) {
-          this.stopSpeakAmplitudeAnimation();
-          this.callbacks.onStateChange('listening');
-
-          if (this.ttsMode && this.active && this.mockTurn < 4) {
-            setTimeout(() => this.simulateMockExchange(true), 4000);
+      await new Promise<void>((resolve) => {
+        sound.setOnPlaybackStatusUpdate((status: AVPlaybackStatus) => {
+          if (!status.isLoaded) {
+            if (status.error) {
+              logger.error('voice', 'Playback load error', status.error);
+              this.callbacks.onError('Audio playback failed');
+              resolve();
+            }
+            return;
           }
-        }
+
+          if (status.isPlaying) {
+            const duration = status.durationMillis ?? 1;
+            const position = status.positionMillis ?? 0;
+            const progress = Math.min(1, position / duration);
+            this.callbacks.onPlaybackProgress?.(progress);
+            const metering = status.volume ?? 0.75;
+            this.callbacks.onAmplitude(Math.min(1, 0.35 + metering * 0.45));
+          }
+
+          if (status.didJustFinish) {
+            logger.info('voice', 'Playback complete');
+            this.stopSpeakAmplitudeAnimation();
+            this.callbacks.onPlaybackProgress?.(1);
+            resolve();
+          }
+        });
       });
-    } catch {
+
+      await this.resumeMeteringAfterPlayback();
+      if (this.active) this.setState('listening');
+    } catch (err) {
+      logger.error('voice', 'playAudioChunk failed', err);
       this.stopSpeakAmplitudeAnimation();
-      this.callbacks.onStateChange('listening');
+      await this.resumeMeteringAfterPlayback();
+      if (this.active) this.setState('listening');
     }
   }
 
   async stop(): Promise<void> {
     this.active = false;
+    logger.info('voice', 'Stopping voice session');
 
     if (this.vadTimer) clearTimeout(this.vadTimer);
     if (this.meteringInterval) clearInterval(this.meteringInterval);
+    this.meteringInterval = null;
     this.stopSpeakAmplitudeAnimation();
 
     if (this.recording) {
@@ -447,6 +644,7 @@ export class ElevenLabsVoiceService {
 
     if (this.sound) {
       try {
+        await this.sound.stopAsync();
         await this.sound.unloadAsync();
       } catch {
         // ignore
@@ -459,6 +657,7 @@ export class ElevenLabsVoiceService {
       this.ws = null;
     }
 
-    this.callbacks.onStateChange('idle');
+    this.isPlayingAudio = false;
+    this.setState('idle');
   }
 }

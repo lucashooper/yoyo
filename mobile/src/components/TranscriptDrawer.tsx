@@ -108,9 +108,9 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
     marginHorizontal: 12,
     marginBottom: 8,
-    backgroundColor: 'rgba(249, 250, 252, 0.82)',
+    backgroundColor: colors.surface + 'D9',
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.6)',
+    borderColor: colors.border,
   },
   handle: {
     alignItems: 'center',
@@ -118,10 +118,9 @@ const styles = StyleSheet.create({
     paddingBottom: 6,
   },
   handleText: {
-    fontSize: 12,
+    ...typography.tiny,
     letterSpacing: 0.3,
-    color: '#6B7280',
-    fontWeight: '500',
+    color: colors.textMuted,
   },
   toolbar: {
     flexDirection: 'row',
@@ -132,7 +131,7 @@ const styles = StyleSheet.create({
   },
   toolbarLabel: {
     ...typography.label,
-    color: '#6B7280',
+    color: colors.textMuted,
     fontSize: 12,
   },
   scroll: {
@@ -144,11 +143,10 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   empty: {
-    fontSize: 12,
-    color: '#9CA3AF',
+    ...typography.tiny,
+    color: colors.textLight,
     textAlign: 'center',
     paddingTop: 12,
-    letterSpacing: 0.2,
   },
   bubble: {
     borderRadius: 16,
@@ -157,11 +155,11 @@ const styles = StyleSheet.create({
   },
   userBubble: {
     alignSelf: 'flex-end',
-    backgroundColor: 'rgba(108, 92, 231, 0.12)',
+    backgroundColor: colors.primarySoft,
   },
   aiBubble: {
     alignSelf: 'flex-start',
-    backgroundColor: 'rgba(255, 255, 255, 0.65)',
+    backgroundColor: colors.surfaceMuted,
   },
   bubbleText: {
     ...typography.body,
@@ -169,10 +167,9 @@ const styles = StyleSheet.create({
     fontSize: 15,
   },
   translation: {
-    fontSize: 11,
-    color: '#6B7280',
+    ...typography.tiny,
+    color: colors.textMuted,
     marginTop: 6,
     fontStyle: 'italic',
-    letterSpacing: 0.2,
   },
 });
