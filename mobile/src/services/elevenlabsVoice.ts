@@ -108,10 +108,10 @@ export class ElevenLabsVoiceService {
     try {
       const { granted } = await Audio.requestPermissionsAsync();
       if (!granted) {
-        const msg = 'Microphone permission is required.';
-        logger.error('voice', msg);
-        this.callbacks.onError(msg);
-        this.setState('error');
+        // Web / denied mic: still allow demo conversation so the UI stays usable
+        logger.warn('voice', 'Microphone denied — continuing in demo mode');
+        this.callbacks.onError('Microphone unavailable — demo mode active. Tap to retry with mic.');
+        await this.startMockSession();
         return;
       }
 
@@ -269,19 +269,27 @@ export class ElevenLabsVoiceService {
     }
   }
 
+  private async startMockSession(): Promise<void> {
+    this.ttsMode = false;
+    this.setState('listening');
+    try {
+      await this.startRecording();
+    } catch (err) {
+      logger.warn('voice', 'Demo mode without live mic', err);
+    }
+    this.scheduleGreeting(false);
+  }
+
   private async startTtsSession(): Promise<void> {
     this.ttsMode = true;
     await this.resolveVoiceId();
     this.setState('listening');
-    await this.startRecording();
+    try {
+      await this.startRecording();
+    } catch (err) {
+      logger.warn('voice', 'TTS mode without live mic', err);
+    }
     this.scheduleGreeting(true);
-  }
-
-  private async startMockSession(): Promise<void> {
-    this.ttsMode = false;
-    this.setState('listening');
-    await this.startRecording();
-    this.scheduleGreeting(false);
   }
 
   /** Greeting only — no phantom user transcripts until VAD fires */
@@ -480,7 +488,7 @@ export class ElevenLabsVoiceService {
     }, 100);
   }
 
-  private async startRecording(): Promise<void> {
+  private async startRecording(): Promise<boolean> {
     try {
       if (this.recording) {
         await this.recording.stopAndUnloadAsync();
@@ -497,10 +505,11 @@ export class ElevenLabsVoiceService {
       this.lastSpeechAt = Date.now();
       this.speechStartedAt = null;
       this.attachMetering();
+      return true;
     } catch (err) {
       const msg = humanizeError(err, 'Recording failed');
-      logger.error('voice', msg, err);
-      this.callbacks.onError(msg);
+      logger.warn('voice', msg, err);
+      return false;
     }
   }
 

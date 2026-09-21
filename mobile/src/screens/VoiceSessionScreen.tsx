@@ -132,7 +132,11 @@ function VoiceSessionInner({ onboarding }: { onboarding: OnboardingData }) {
           </View>
 
           <View style={styles.bottom}>
-            <ConnectionBanner visible={state === 'error'} onReconnect={handleReconnect} />
+            <ConnectionBanner
+              visible={state === 'error'}
+              message={error}
+              onReconnect={handleReconnect}
+            />
             <GrammarCorrectionCard correction={correction} onDismiss={dismissCorrection} />
             <AudioWaveBar amplitude={amplitude} active={waveActive} />
             <Pressable

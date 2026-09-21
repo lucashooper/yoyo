@@ -46,9 +46,11 @@ export function ErrorToast({ visible, message, onDismiss }: Props) {
 
 export function ConnectionBanner({
   visible,
+  message,
   onReconnect,
 }: {
   visible: boolean;
+  message?: string | null;
   onReconnect: () => void;
 }) {
   const pulse = useSharedValue(0);
@@ -71,9 +73,14 @@ export function ConnectionBanner({
 
   if (!visible) return null;
 
+  const title = message?.toLowerCase().includes('microphone')
+    ? 'Microphone needed'
+    : 'Connection lost';
+
   return (
     <Animated.View style={[styles.banner, style]}>
-      <Text style={styles.bannerText}>Connection lost</Text>
+      <Text style={styles.bannerText}>{title}</Text>
+      {message ? <Text style={styles.bannerDetail}>{message}</Text> : null}
       <Text style={styles.bannerAction} onPress={onReconnect}>
         Tap to reconnect
       </Text>
@@ -115,6 +122,11 @@ const styles = StyleSheet.create({
   bannerText: {
     ...typography.label,
     color: colors.error,
+  },
+  bannerDetail: {
+    ...typography.caption,
+    color: colors.textMuted,
+    textAlign: 'center',
   },
   bannerAction: {
     ...typography.caption,
