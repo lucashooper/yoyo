@@ -1,3 +1,4 @@
+import * as Haptics from 'expo-haptics';
 import { router } from 'expo-router';
 import React, { useCallback, useEffect, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
@@ -10,8 +11,6 @@ import { TranscriptDrawer } from '../components/TranscriptDrawer';
 import { useVoiceSession } from '../hooks/useVoiceSession';
 import { logSession, signInAnonymously } from '../services/supabase';
 import { getOnboarding } from '../services/storage';
-import { colors } from '../theme/colors';
-import { typography } from '../theme/typography';
 import type { OnboardingData } from '../types';
 
 export function VoiceSessionScreen() {
@@ -44,6 +43,7 @@ export function VoiceSessionScreen() {
   });
 
   const handleExit = useCallback(async () => {
+    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     await stop();
 
     if (onboarding) {
@@ -61,72 +61,115 @@ export function VoiceSessionScreen() {
       );
     }
 
-    router.back();
+    router.replace('/home');
   }, [onboarding, sessionId, stop, transcript.length]);
+
+  const handleHelp = useCallback(() => {
+    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    setHelpVisible(true);
+  }, []);
 
   if (!onboarding) {
     return <View style={styles.loading} />;
   }
 
   const waveActive = state === 'listening' || state === 'user_speaking' || state === 'speaking';
+  const languageLabel =
+    onboarding.language.charAt(0).toUpperCase() + onboarding.language.slice(1);
+  const scenarioEmoji = onboarding.scenario.title.toLowerCase().includes('coffee') ? '☕' : '💬';
 
   return (
-    <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
-      <View style={styles.container}>
-        <View style={styles.header}>
-          <Pressable style={styles.iconButton} onPress={() => setHelpVisible(true)} hitSlop={12}>
-            <Text style={styles.iconText}>?</Text>
-          </Pressable>
-          <Pressable style={styles.iconButton} onPress={() => void handleExit()} hitSlop={12}>
-            <Text style={styles.iconText}>✕</Text>
-          </Pressable>
-        </View>
+    <View style={styles.root}>
+      <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
+        <View style={styles.container}>
+          <View style={styles.headerOverlay} pointerEvents="box-none">
+            <Pressable style={styles.iconButton} onPress={handleHelp} hitSlop={16}>
+              <Text style={styles.iconText}>?</Text>
+            </Pressable>
 
-        <View style={styles.center}>
-          <NobiAvatar state={state} amplitude={amplitude} size={240} />
-        </View>
+            <View style={styles.badge}>
+              <Text style={styles.badgeText}>
+                {scenarioEmoji} {onboarding.scenario.title} • {languageLabel}
+              </Text>
+            </View>
 
-        <View style={styles.bottom}>
-          <GrammarCorrectionCard correction={correction} onDismiss={dismissCorrection} />
-          <AudioWaveBar amplitude={amplitude} active={waveActive} />
-          <Text style={styles.status}>{statusText}</Text>
-          <TranscriptDrawer entries={transcript} />
+            <Pressable style={styles.iconButton} onPress={() => void handleExit()} hitSlop={16}>
+              <Text style={styles.iconText}>✕</Text>
+            </Pressable>
+          </View>
+
+          <View style={styles.center}>
+            <NobiAvatar state={state} amplitude={amplitude} size={260} />
+          </View>
+
+          <View style={styles.bottom}>
+            <GrammarCorrectionCard correction={correction} onDismiss={dismissCorrection} />
+            <AudioWaveBar amplitude={amplitude} active={waveActive} />
+            <Text style={styles.status}>{statusText}</Text>
+            <TranscriptDrawer entries={transcript} />
+          </View>
         </View>
-      </View>
+      </SafeAreaView>
 
       <HelpModal visible={helpVisible} onClose={() => setHelpVisible(false)} />
-    </SafeAreaView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
+  root: {
+    flex: 1,
+    backgroundColor: '#F9FAFC',
+  },
   safe: {
     flex: 1,
-    backgroundColor: colors.background,
+    backgroundColor: '#F9FAFC',
   },
   loading: {
     flex: 1,
-    backgroundColor: colors.background,
+    backgroundColor: '#F9FAFC',
   },
   container: {
     flex: 1,
   },
-  header: {
+  headerOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    zIndex: 10,
     flexDirection: 'row',
+    alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 20,
-    paddingTop: 8,
+    paddingHorizontal: 16,
+    paddingTop: 4,
   },
   iconButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
     alignItems: 'center',
     justifyContent: 'center',
+    backgroundColor: 'rgba(107, 114, 128, 0.08)',
   },
   iconText: {
-    fontSize: 22,
-    color: colors.textMuted,
+    fontSize: 16,
+    color: '#6B7280',
+    fontWeight: '500',
+    letterSpacing: 0.2,
+  },
+  badge: {
+    paddingHorizontal: 12,
+    paddingVertical: 5,
+    borderRadius: 999,
+    backgroundColor: 'rgba(255, 255, 255, 0.55)',
+    borderWidth: 1,
+    borderColor: 'rgba(229, 231, 235, 0.8)',
+  },
+  badgeText: {
+    fontSize: 12,
+    color: '#6B7280',
+    letterSpacing: 0.3,
     fontWeight: '500',
   },
   center: {
@@ -138,10 +181,12 @@ const styles = StyleSheet.create({
     paddingBottom: 0,
   },
   status: {
-    ...typography.caption,
-    color: colors.textLight,
+    fontSize: 13,
+    color: '#6B7280',
     textAlign: 'center',
-    marginBottom: 8,
+    marginBottom: 4,
     minHeight: 20,
+    letterSpacing: 0.3,
+    fontWeight: '500',
   },
 });

@@ -61,8 +61,8 @@ export function useVoiceSession({
   const statusText: Record<VoiceSessionState, string> = {
     idle: '',
     connecting: 'Connecting...',
-    listening: 'Listening...',
-    user_speaking: 'Listening...',
+    listening: "I'm listening...",
+    user_speaking: "I'm listening...",
     thinking: 'Thinking...',
     speaking: 'Nobi is speaking...',
     error: error ?? 'Something went wrong',

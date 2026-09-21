@@ -1,15 +1,17 @@
 import { Audio } from 'expo-av';
 import type { GrammarCorrection, SupportedLanguage, TranscriptEntry, VoiceSessionState } from '../types';
 import { detectCorrection } from './corrections';
+import { getVoiceForLanguage } from './voiceService';
 
 const API_KEY = process.env.EXPO_PUBLIC_ELEVENLABS_API_KEY ?? '';
 const AGENT_ID = process.env.EXPO_PUBLIC_ELEVENLABS_AGENT_ID ?? '';
 
-export const isElevenLabsConfigured =
-  API_KEY.length > 0 &&
-  !API_KEY.includes('your_') &&
-  AGENT_ID.length > 0 &&
-  !AGENT_ID.includes('your_');
+const hasValidKey = API_KEY.length > 0 && !API_KEY.includes('your_');
+const hasValidAgent = AGENT_ID.length > 0 && !AGENT_ID.includes('your_');
+
+export const isElevenLabsAgentConfigured = hasValidKey && hasValidAgent;
+export const isElevenLabsTtsConfigured = hasValidKey && !hasValidAgent;
+export const isElevenLabsConfigured = isElevenLabsAgentConfigured;
 
 const VAD_SILENCE_MS = 600;
 const MOCK_RESPONSES: Record<SupportedLanguage, string[]> = {
@@ -33,6 +35,10 @@ const MOCK_RESPONSES: Record<SupportedLanguage, string[]> = {
     'Hallo! Schön, mit dir zu üben. Was möchtest du bestellen?',
     'Sehr gut! Sag: „Ich hätte gern einen Kaffee, bitte."',
   ],
+  russian: [
+    'Привет! Рад практиковаться с тобой. Что ты хотел бы заказать в кафе?',
+    'Отлично! Попробуй сказать: «Я хотел бы кофе, пожалуйста.»',
+  ],
 };
 
 export interface VoiceSessionCallbacks {
@@ -55,6 +61,9 @@ export class ElevenLabsVoiceService {
   private lastSpeechAt = 0;
   private vadTimer: ReturnType<typeof setTimeout> | null = null;
   private meteringInterval: ReturnType<typeof setInterval> | null = null;
+  private voiceId: string | null = null;
+  private ttsMode = false;
+  private speakAmplitudeTimer: ReturnType<typeof setInterval> | null = null;
 
   constructor(
     language: SupportedLanguage,
@@ -85,16 +94,24 @@ export class ElevenLabsVoiceService {
       playThroughEarpieceAndroid: false,
     });
 
-    if (isElevenLabsConfigured) {
+    if (isElevenLabsAgentConfigured) {
       await this.connectWebSocket();
+    } else if (isElevenLabsTtsConfigured) {
+      await this.startTtsSession();
     } else {
       await this.startMockSession();
     }
   }
 
+  private async resolveVoiceId(): Promise<string> {
+    if (this.voiceId) return this.voiceId;
+    const voice = await getVoiceForLanguage(this.language);
+    this.voiceId = voice.voiceId;
+    return this.voiceId;
+  }
+
   private async connectWebSocket(): Promise<void> {
     try {
-      // Auth via query param for React Native WebSocket compatibility
       const url = `wss://api.elevenlabs.io/v1/convai/conversation?agent_id=${encodeURIComponent(AGENT_ID)}`;
       this.ws = new WebSocket(url);
 
@@ -175,17 +192,29 @@ export class ElevenLabsVoiceService {
     }
   }
 
+  private async startTtsSession(): Promise<void> {
+    this.ttsMode = true;
+    await this.resolveVoiceId();
+    this.callbacks.onStateChange('listening');
+    await this.startRecording();
+
+    setTimeout(() => {
+      if (!this.active) return;
+      this.simulateMockExchange(true);
+    }, 2500);
+  }
+
   private async startMockSession(): Promise<void> {
     this.callbacks.onStateChange('listening');
     await this.startRecording();
 
     setTimeout(() => {
       if (!this.active) return;
-      this.simulateMockExchange();
+      this.simulateMockExchange(false);
     }, 2500);
   }
 
-  private simulateMockExchange(): void {
+  private simulateMockExchange(useTts: boolean): void {
     const userPhrases = ['Hola, me gusta un café', 'Je suis faim', 'I am agree'];
     const userText = userPhrases[this.mockTurn % userPhrases.length] ?? 'Hello!';
 
@@ -218,26 +247,85 @@ export class ElevenLabsVoiceService {
           timestamp: Date.now(),
         });
 
-        this.callbacks.onStateChange('speaking');
         this.mockTurn += 1;
 
-        let tick = 0;
-        const speakInterval = setInterval(() => {
-          this.callbacks.onAmplitude(0.3 + Math.sin(tick) * 0.2);
-          tick += 1;
-        }, 120);
+        if (useTts && this.ttsMode) {
+          void this.speakText(reply);
+        } else {
+          this.callbacks.onStateChange('speaking');
+          let tick = 0;
+          const speakInterval = setInterval(() => {
+            this.callbacks.onAmplitude(0.3 + Math.sin(tick) * 0.2);
+            tick += 1;
+          }, 120);
 
-        setTimeout(() => {
-          clearInterval(speakInterval);
-          this.callbacks.onAmplitude(0);
-          this.callbacks.onStateChange('listening');
+          setTimeout(() => {
+            clearInterval(speakInterval);
+            this.callbacks.onAmplitude(0);
+            this.callbacks.onStateChange('listening');
 
-          if (this.active && this.mockTurn < 4) {
-            setTimeout(() => this.simulateMockExchange(), 4000);
-          }
-        }, 2800);
+            if (this.active && this.mockTurn < 4) {
+              setTimeout(() => this.simulateMockExchange(false), 4000);
+            }
+          }, 2800);
+        }
       }, 1400);
     }, 1200);
+  }
+
+  private async speakText(text: string): Promise<void> {
+    try {
+      const voiceId = await this.resolveVoiceId();
+      this.callbacks.onStateChange('speaking');
+
+      const response = await fetch(
+        `https://api.elevenlabs.io/v1/text-to-speech/${voiceId}/stream`,
+        {
+          method: 'POST',
+          headers: {
+            'xi-api-key': API_KEY,
+            'Content-Type': 'application/json',
+            Accept: 'audio/mpeg',
+          },
+          body: JSON.stringify({
+            text,
+            model_id: 'eleven_multilingual_v2',
+          }),
+        },
+      );
+
+      if (!response.ok) {
+        throw new Error('TTS request failed');
+      }
+
+      const buffer = await response.arrayBuffer();
+      this.startSpeakAmplitudeAnimation();
+      await this.playAudioChunk(buffer);
+    } catch {
+      this.callbacks.onStateChange('listening');
+      this.callbacks.onAmplitude(0);
+
+      if (this.active && this.mockTurn < 4) {
+        setTimeout(() => this.simulateMockExchange(true), 4000);
+      }
+    }
+  }
+
+  private startSpeakAmplitudeAnimation(): void {
+    if (this.speakAmplitudeTimer) clearInterval(this.speakAmplitudeTimer);
+    let tick = 0;
+    this.speakAmplitudeTimer = setInterval(() => {
+      this.callbacks.onAmplitude(0.35 + Math.sin(tick * 0.8) * 0.25);
+      tick += 1;
+    }, 100);
+  }
+
+  private stopSpeakAmplitudeAnimation(): void {
+    if (this.speakAmplitudeTimer) {
+      clearInterval(this.speakAmplitudeTimer);
+      this.speakAmplitudeTimer = null;
+    }
+    this.callbacks.onAmplitude(0);
   }
 
   private async startRecording(): Promise<void> {
@@ -297,9 +385,9 @@ export class ElevenLabsVoiceService {
           const buffer = await response.arrayBuffer();
           this.ws.send(buffer);
         }
+        this.callbacks.onStateChange('thinking');
       }
 
-      this.callbacks.onStateChange('thinking');
       await this.recording.stopAndUnloadAsync();
       this.recording = null;
       await this.startRecording();
@@ -322,11 +410,21 @@ export class ElevenLabsVoiceService {
       this.sound = sound;
 
       sound.setOnPlaybackStatusUpdate((status) => {
+        if (status.isLoaded && status.isPlaying) {
+          const metering = status.volume ?? 0.8;
+          this.callbacks.onAmplitude(Math.min(1, metering * 0.9));
+        }
         if (status.isLoaded && status.didJustFinish) {
+          this.stopSpeakAmplitudeAnimation();
           this.callbacks.onStateChange('listening');
+
+          if (this.ttsMode && this.active && this.mockTurn < 4) {
+            setTimeout(() => this.simulateMockExchange(true), 4000);
+          }
         }
       });
     } catch {
+      this.stopSpeakAmplitudeAnimation();
       this.callbacks.onStateChange('listening');
     }
   }
@@ -336,6 +434,7 @@ export class ElevenLabsVoiceService {
 
     if (this.vadTimer) clearTimeout(this.vadTimer);
     if (this.meteringInterval) clearInterval(this.meteringInterval);
+    this.stopSpeakAmplitudeAnimation();
 
     if (this.recording) {
       try {

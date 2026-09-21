@@ -5,10 +5,10 @@ Ultra-minimalist language practice app — drop directly into a live voice conve
 ## Features
 
 - **Onboarding** — pick a language, choose or create a roleplay scenario
-- **Home lesson card** — streak pill, mascot, and one-tap Start
+- **Zero-friction session** — auto-starts voice practice immediately after onboarding
 - **Voice session** — continuous duplex conversation (no hold-to-talk)
 - **NobiAvatar** — breathing, blinking, amplitude ripples, thinking shimmer, speaking mouth
-- **Transcript drawer** — drag up for live transcript + translation toggle
+- **Transcript drawer** — swipe up for live transcript + translation toggle
 - **Grammar corrections** — gentle toast when a mistake is detected
 - **Supabase** — auth, session logs, streaks (with local mock fallback)
 
@@ -16,10 +16,11 @@ Ultra-minimalist language practice app — drop directly into a live voice conve
 
 - Node.js 18+
 - Expo Go app (iOS/Android) or simulator/emulator
-- Optional: ElevenLabs API key + agent ID for live voice
+- Optional: ElevenLabs API key for live TTS voice
+- Optional: ElevenLabs agent ID for full conversational AI
 - Optional: Supabase project for cloud sync
 
-## Setup
+## Local setup
 
 ```bash
 cd mobile
@@ -27,11 +28,12 @@ npm install
 cp .env.example .env.local
 ```
 
-Edit `.env.local` with your keys (never commit this file):
+Edit `.env.local` with your keys (**never commit this file**):
 
 ```env
 EXPO_PUBLIC_ELEVENLABS_API_KEY=sk_...
-EXPO_PUBLIC_ELEVENLABS_AGENT_ID=agent_...
+EXPO_PUBLIC_ELEVENLABS_AGENT_ID=          # optional — enables convai WebSocket
+EXPO_PUBLIC_ELEVENLABS_VOICE_ID=...       # optional — default TTS voice per language
 EXPO_PUBLIC_SUPABASE_URL=https://xxx.supabase.co
 EXPO_PUBLIC_SUPABASE_ANON_KEY=eyJ...
 ```
@@ -49,7 +51,9 @@ npm run typecheck  # TypeScript check
 npm run export     # Production web export
 ```
 
-Scan the QR code with Expo Go, or press `i` / `a` for simulators.
+### Why the cloud preview QR won't work
+
+Expo Go on your phone must reach the dev server on your machine over the local network. Cloud agent environments run on remote VMs — their QR codes point to addresses your phone cannot reach. **Clone the repo and run `npm start` locally** to use Expo Go or simulators.
 
 ## Project structure
 
@@ -59,38 +63,19 @@ mobile/
   src/
     screens/            # Onboarding, Home, VoiceSession
     components/         # NobiAvatar, AudioWaveBar, TranscriptDrawer, ...
-    services/           # ElevenLabs voice, Supabase, corrections
+    services/           # ElevenLabs voice, voiceService, Supabase, corrections
     hooks/              # useVoiceSession, useStreak
     types/              # Shared TypeScript types
     theme/              # Colors, typography
 ```
 
-## ElevenLabs notes
+## Voice modes
 
-The voice service connects to ElevenLabs Conversational AI via WebSocket when configured. React Native WebSocket does not support custom headers on all platforms — if connection fails, the app automatically falls back to demo mode. For production native builds, consider a thin backend proxy for auth.
-
-## Supabase schema (optional)
-
-```sql
-create table profiles (
-  id uuid primary key,
-  streak int default 0,
-  last_session_date date,
-  total_sessions int default 0
-);
-
-create table session_logs (
-  id text primary key,
-  user_id uuid references profiles(id),
-  started_at timestamptz,
-  ended_at timestamptz,
-  language text,
-  scenario_title text,
-  transcript_length int
-);
-```
-
-Enable anonymous auth or magic link in Supabase Auth settings.
+| Configuration | Behavior |
+|---|---|
+| API key + agent ID | ElevenLabs Conversational AI via WebSocket |
+| API key only | TTS playback with language-matched voice |
+| No keys | Demo mode with simulated conversation |
 
 ## License
 

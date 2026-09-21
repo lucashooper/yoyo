@@ -32,6 +32,13 @@ const HEURISTIC_PATTERNS: Record<
     },
   ],
   japanese: [],
+  russian: [
+    {
+      pattern: /\bя есть\b/i,
+      suggestion: 'У меня есть',
+      explanation: 'Use "у меня есть" to express possession.',
+    },
+  ],
   german: [
     {
       pattern: /\bich bin\b.*\bhungrig\b/i,

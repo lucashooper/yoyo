@@ -47,7 +47,7 @@ export function OnboardingScreen() {
       scenario,
       completedAt: new Date().toISOString(),
     });
-    router.replace('/home');
+    router.replace('/session');
   };
 
   const handleCustomFinish = () => {

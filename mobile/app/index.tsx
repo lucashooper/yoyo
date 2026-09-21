@@ -23,7 +23,7 @@ export default function Index() {
     );
   }
 
-  return <Redirect href={hasOnboarding ? '/home' : '/onboarding'} />;
+  return <Redirect href={hasOnboarding ? '/session' : '/onboarding'} />;
 }
 
 const styles = StyleSheet.create({

@@ -22,8 +22,8 @@ interface TranscriptDrawerProps {
   entries: TranscriptEntry[];
 }
 
-const COLLAPSED = 56;
-const EXPANDED = 320;
+const COLLAPSED = 44;
+const EXPANDED = 300;
 
 export function TranscriptDrawer({ entries }: TranscriptDrawerProps) {
   const [expanded, setExpanded] = useState(false);
@@ -32,7 +32,7 @@ export function TranscriptDrawer({ entries }: TranscriptDrawerProps) {
 
   const toggle = (open: boolean) => {
     setExpanded(open);
-    height.value = withSpring(open ? EXPANDED : COLLAPSED, { damping: 18, stiffness: 160 });
+    height.value = withSpring(open ? EXPANDED : COLLAPSED, { damping: 20, stiffness: 180 });
   };
 
   const pan = Gesture.Pan()
@@ -41,10 +41,10 @@ export function TranscriptDrawer({ entries }: TranscriptDrawerProps) {
       height.value = next;
     })
     .onEnd((e) => {
-      const shouldExpand = e.translationY < -40 || height.value > EXPANDED * 0.55;
+      const shouldExpand = e.translationY < -36 || height.value > EXPANDED * 0.5;
       height.value = withSpring(shouldExpand ? EXPANDED : COLLAPSED, {
-        damping: 18,
-        stiffness: 160,
+        damping: 20,
+        stiffness: 180,
       });
       runOnJS(setExpanded)(shouldExpand);
     });
@@ -57,8 +57,7 @@ export function TranscriptDrawer({ entries }: TranscriptDrawerProps) {
     <GestureDetector gesture={pan}>
       <Animated.View style={[styles.drawer, drawerStyle]}>
         <Pressable style={styles.handle} onPress={() => toggle(!expanded)}>
-          <View style={styles.grabber} />
-          <Text style={styles.handleText}>^ Transcript</Text>
+          <Text style={styles.handleText}>^ Swipe up for transcript</Text>
         </Pressable>
 
         {expanded && (
@@ -104,33 +103,25 @@ export function TranscriptDrawer({ entries }: TranscriptDrawerProps) {
 
 const styles = StyleSheet.create({
   drawer: {
-    backgroundColor: colors.surface,
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-    borderTopWidth: 1,
-    borderColor: colors.border,
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
     overflow: 'hidden',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: -4 },
-    shadowOpacity: 0.06,
-    shadowRadius: 12,
-    elevation: 8,
+    marginHorizontal: 12,
+    marginBottom: 8,
+    backgroundColor: 'rgba(249, 250, 252, 0.82)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.6)',
   },
   handle: {
     alignItems: 'center',
-    paddingTop: 10,
-    paddingBottom: 8,
-  },
-  grabber: {
-    width: 40,
-    height: 4,
-    borderRadius: 2,
-    backgroundColor: colors.border,
-    marginBottom: 6,
+    paddingTop: 12,
+    paddingBottom: 6,
   },
   handleText: {
-    ...typography.caption,
-    color: colors.textMuted,
+    fontSize: 12,
+    letterSpacing: 0.3,
+    color: '#6B7280',
+    fontWeight: '500',
   },
   toolbar: {
     flexDirection: 'row',
@@ -141,7 +132,8 @@ const styles = StyleSheet.create({
   },
   toolbarLabel: {
     ...typography.label,
-    color: colors.textMuted,
+    color: '#6B7280',
+    fontSize: 12,
   },
   scroll: {
     flex: 1,
@@ -152,10 +144,11 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   empty: {
-    ...typography.caption,
-    color: colors.textLight,
+    fontSize: 12,
+    color: '#9CA3AF',
     textAlign: 'center',
     paddingTop: 12,
+    letterSpacing: 0.2,
   },
   bubble: {
     borderRadius: 16,
@@ -164,11 +157,11 @@ const styles = StyleSheet.create({
   },
   userBubble: {
     alignSelf: 'flex-end',
-    backgroundColor: colors.primaryLight + '33',
+    backgroundColor: 'rgba(108, 92, 231, 0.12)',
   },
   aiBubble: {
     alignSelf: 'flex-start',
-    backgroundColor: colors.background,
+    backgroundColor: 'rgba(255, 255, 255, 0.65)',
   },
   bubbleText: {
     ...typography.body,
@@ -176,9 +169,10 @@ const styles = StyleSheet.create({
     fontSize: 15,
   },
   translation: {
-    ...typography.tiny,
-    color: colors.textMuted,
+    fontSize: 11,
+    color: '#6B7280',
     marginTop: 6,
     fontStyle: 'italic',
+    letterSpacing: 0.2,
   },
 });

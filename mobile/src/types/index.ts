@@ -1,4 +1,10 @@
-export type SupportedLanguage = 'spanish' | 'french' | 'english' | 'japanese' | 'german';
+export type SupportedLanguage =
+  | 'spanish'
+  | 'french'
+  | 'english'
+  | 'japanese'
+  | 'german'
+  | 'russian';
 
 export type VoiceSessionState =
   | 'idle'
@@ -59,6 +65,7 @@ export const LANGUAGE_OPTIONS: { value: SupportedLanguage; label: string; flag: 
   { value: 'english', label: 'English', flag: '🇬🇧' },
   { value: 'japanese', label: 'Japanese', flag: '🇯🇵' },
   { value: 'german', label: 'German', flag: '🇩🇪' },
+  { value: 'russian', label: 'Russian', flag: '🇷🇺' },
 ];
 
 export const DEFAULT_SCENARIOS: Omit<Scenario, 'id'>[] = [
