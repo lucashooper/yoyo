@@ -4,7 +4,10 @@ import { router } from 'expo-router';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  Dimensions,
   KeyboardAvoidingView,
+  NativeScrollEvent,
+  NativeSyntheticEvent,
   Platform,
   Pressable,
   ScrollView,
@@ -16,6 +19,8 @@ import {
 import Animated, { FadeIn, FadeInUp, FadeOut } from 'react-native-reanimated';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { AgentVoiceHeader } from '../components/AgentVoiceHeader';
+import { MascotGlow } from '../components/MascotGlow';
+import { PrimaryButton } from '../components/PrimaryButton';
 import { SocialSignInButtons } from '../components/SocialSignInButtons';
 import { NobiAvatar } from '../components/NobiAvatar';
 import { previewLanguageVoice } from '../services/languagePreview';
@@ -39,6 +44,8 @@ import {
   type OnboardingFlowState,
   type SupportedLanguage,
 } from '../types';
+
+const CARD_WIDTH = Dimensions.get('window').width - 48;
 
 type Step =
   | 'splash'
@@ -231,7 +238,9 @@ export function OnboardingScreen() {
                     <Ionicons name="chevron-back" size={20} color={colors.text} />
                   </Pressable>
                   <View style={styles.langHeader}>
-                    <NobiAvatar state="idle" size={80} softAura />
+                    <MascotGlow size={100}>
+                      <NobiAvatar state="idle" size={88} softAura />
+                    </MascotGlow>
                     <Text style={styles.langTitle}>Which language do you want to learn?</Text>
                   </View>
                   <View style={styles.langList}>
@@ -387,19 +396,34 @@ export function OnboardingScreen() {
 
               {step === 'plan_reveal' && (
                 <Animated.View entering={ENTER} style={styles.planReveal}>
-                  <NobiAvatar state="idle" size={64} softAura />
-                  <Animated.View
-                    key={loadingCardIdx}
-                    entering={FadeInUp.duration(360)}
-                    style={[styles.planCard, cardShadow]}
+                  <MascotGlow size={100}>
+                    <NobiAvatar state="idle" size={88} softAura />
+                  </MascotGlow>
+                  <ScrollView
+                    horizontal
+                    pagingEnabled
+                    showsHorizontalScrollIndicator={false}
+                    style={styles.cardCarousel}
+                    contentContainerStyle={styles.cardCarouselContent}
+                    onMomentumScrollEnd={(e: NativeSyntheticEvent<NativeScrollEvent>) => {
+                      const idx = Math.round(e.nativeEvent.contentOffset.x / CARD_WIDTH);
+                      setLoadingCardIdx(Math.max(0, Math.min(PLAN_LOADING_CARDS.length - 1, idx)));
+                    }}
                   >
-                    <Text style={styles.planCardTitle}>
-                      Your {languageLabel(flow.language ?? 'english')} starting point
-                    </Text>
-                    <Text style={styles.planCardBody}>
-                      {PLAN_LOADING_CARDS[loadingCardIdx]?.body}
-                    </Text>
-                  </Animated.View>
+                    {PLAN_LOADING_CARDS.map((card, i) => (
+                      <View key={card.title} style={[styles.planCard, { width: CARD_WIDTH }, cardShadow]}>
+                        <View style={styles.planCardIconWrap}>
+                          <Text style={styles.planCardIcon}>{card.icon}</Text>
+                        </View>
+                        <Text style={styles.planCardTitle}>
+                          {i === 0
+                            ? `Your ${languageLabel(flow.language ?? 'english')} starting point`
+                            : card.title}
+                        </Text>
+                        <Text style={styles.planCardBody}>{card.body}</Text>
+                      </View>
+                    ))}
+                  </ScrollView>
                   <View style={styles.dotsRow}>
                     {PLAN_LOADING_CARDS.map((_, i) => (
                       <Pressable key={i} onPress={() => setLoadingCardIdx(i)}>
@@ -407,9 +431,7 @@ export function OnboardingScreen() {
                       </Pressable>
                     ))}
                   </View>
-                  <Pressable style={[styles.primaryPill, cardShadow]} onPress={() => go('account')}>
-                    <Text style={styles.primaryPillText}>Start learning</Text>
-                  </Pressable>
+                  <PrimaryButton title="Start learning" fullWidth onPress={() => go('account')} />
                 </Animated.View>
               )}
 
@@ -508,13 +530,19 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 14,
     backgroundColor: colors.surface,
-    borderRadius: 24,
+    borderRadius: 14,
     paddingVertical: 16,
     paddingHorizontal: 20,
     borderWidth: 1,
     borderColor: colors.border,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 8,
+    elevation: 2,
   },
   langPillActive: {
+    borderWidth: 2,
     borderColor: colors.primary,
     backgroundColor: colors.primarySoft,
   },
@@ -526,7 +554,9 @@ const styles = StyleSheet.create({
   langPillTextActive: { color: colors.primaryDark },
   primaryPill: {
     backgroundColor: colors.primary,
-    borderRadius: 28,
+    borderRadius: 16,
+    borderBottomWidth: 4,
+    borderBottomColor: colors.primaryDark,
     minHeight: 56,
     paddingVertical: 18,
     paddingHorizontal: 32,
@@ -630,21 +660,37 @@ const styles = StyleSheet.create({
     flexGrow: 1,
     minHeight: 520,
     alignItems: 'center',
-    paddingTop: 32,
-    gap: 24,
+    paddingTop: 16,
+    gap: 20,
     width: '100%',
+  },
+  cardCarousel: {
+    width: CARD_WIDTH,
+  },
+  cardCarouselContent: {
+    alignItems: 'center',
   },
   planCard: {
     backgroundColor: colors.surface,
-    borderRadius: 24,
-    padding: 28,
-    width: '100%',
+    borderRadius: 20,
+    padding: 24,
     alignItems: 'center',
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderBottomWidth: 4,
+    borderBottomColor: colors.border,
+  },
+  planCardIconWrap: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    backgroundColor: colors.primarySoft,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 20,
   },
   planCardIcon: {
-    flexDirection: 'row',
-    gap: 8,
-    marginBottom: 20,
+    fontSize: 28,
   },
   dot: {
     width: 10,
@@ -656,6 +702,7 @@ const styles = StyleSheet.create({
     color: colors.text,
     textAlign: 'center',
     marginBottom: 12,
+    fontWeight: '700',
   },
   planCardBody: {
     ...typography.body,

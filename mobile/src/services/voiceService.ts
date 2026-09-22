@@ -78,17 +78,16 @@ export async function getVoiceForLanguage(
 ): Promise<{ voiceId: string; name: string }> {
   const voices = await fetchVoices();
   const match = voices.find((v) => matchesLanguage(v, language));
-
   if (match) {
     return { voiceId: match.voice_id, name: match.name };
   }
 
+  if (env.elevenLabs.hasVoiceId) {
+    return { voiceId: env.elevenLabs.voiceId, name: 'Nobi voice' };
+  }
+
   const mascot = MASCOT_VOICES[language];
   if (mascot) return mascot;
-
-  if (env.elevenLabs.hasVoiceId) {
-    return { voiceId: env.elevenLabs.voiceId, name: 'Default voice' };
-  }
 
   return MASCOT_VOICES.english;
 }

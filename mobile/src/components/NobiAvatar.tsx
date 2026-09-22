@@ -175,7 +175,17 @@ export function NobiAvatar({ state, amplitude = 0, size = 220, softAura = false 
           },
         ]}
       />
-      <Animated.View style={[styles.body, bodyStyle, { width: size * 0.82, height: size * 0.78 }]}>
+      <Animated.View
+        style={[
+          styles.body,
+          bodyStyle,
+          {
+            width: size * 0.88,
+            height: size * 0.88,
+            borderRadius: size * 0.44,
+          },
+        ]}
+      >
         <Animated.View style={[styles.shimmer, shimmerStyle]} />
         <View style={styles.face}>
           <View style={styles.eyes}>
@@ -225,12 +235,15 @@ const styles = StyleSheet.create({
   face: {
     alignItems: 'center',
     justifyContent: 'center',
-    paddingTop: 8,
+    width: '100%',
+    height: '100%',
+    paddingTop: 4,
   },
   eyes: {
     flexDirection: 'row',
-    gap: 36,
-    marginBottom: 18,
+    gap: 28,
+    marginBottom: 14,
+    marginTop: 6,
   },
   eye: {
     width: 18,
@@ -250,6 +263,6 @@ const styles = StyleSheet.create({
     opacity: 0.7,
     top: 52,
   },
-  cheekLeft: { left: 28 },
-  cheekRight: { right: 28 },
+  cheekLeft: { left: '22%' },
+  cheekRight: { right: '22%' },
 });

@@ -2,11 +2,13 @@ import * as Haptics from 'expo-haptics';
 import { router, useFocusEffect } from 'expo-router';
 import React, { useCallback, useMemo, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
-import Animated, { FadeInUp, LinearTransition } from 'react-native-reanimated';
+import Animated, { LinearTransition } from 'react-native-reanimated';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { LanguageLearningOverlay } from '../components/LanguageLearningOverlay';
-import { MyPlanDrawer } from '../components/MyPlanDrawer';
+import { LearningPathSheet } from '../components/LearningPathSheet';
+import { MascotGlow } from '../components/MascotGlow';
 import { NobiAvatar } from '../components/NobiAvatar';
+import { PrimaryButton } from '../components/PrimaryButton';
 import { StreakPill } from '../components/StreakPill';
 import { useStreak } from '../hooks/useStreak';
 import { previewLanguageVoice } from '../services/languagePreview';
@@ -39,7 +41,7 @@ export function HomeScreen() {
   const [customScenarios, setCustomScenarios] = useState<Scenario[]>([]);
   const [freeSessions, setFreeSessions] = useState(5);
   const [langOpen, setLangOpen] = useState(false);
-  const [progressOpen, setProgressOpen] = useState(false);
+  const [planOpen, setPlanOpen] = useState(false);
   const [lessonIndex, setLessonIndex] = useState(0);
 
   const load = useCallback(async () => {
@@ -83,6 +85,19 @@ export function HomeScreen() {
     router.push('/session');
   };
 
+  const startRoleplay = async () => {
+    if (!onboarding) return;
+    const scenario: Scenario = {
+      id: `roleplay_${Date.now()}`,
+      title: 'Free roleplay',
+      prompt: 'Open-ended conversation practice. Adapt to whatever the learner wants to discuss.',
+      isCustom: true,
+      icon: '🎭',
+    };
+    await startLesson(scenario);
+    setPlanOpen(false);
+  };
+
   const changeLanguage = async (value: OnboardingData['language']) => {
     if (!onboarding) return;
     void Haptics.selectionAsync();
@@ -98,44 +113,33 @@ export function HomeScreen() {
 
   return (
     <View style={styles.root}>
-      <SafeAreaView style={styles.safe} edges={['top']}>
+      <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
         <View style={styles.topBar}>
-          <Pressable style={styles.langPill} onPress={() => setLangOpen(true)}>
-            <Text style={styles.langFlag}>{languageMeta?.flag ?? '🌐'}</Text>
-            <Text style={styles.langLevel}>{levelShort(onboarding.proficiency)}</Text>
+          <Pressable style={styles.chip} onPress={() => setLangOpen(true)}>
+            <Text style={styles.chipFlag}>{languageMeta?.flag ?? '🌐'}</Text>
+            <Text style={styles.chipText}>{levelShort(onboarding.proficiency)}</Text>
           </Pressable>
 
-          <StreakPill
-            streak={streak}
-            compact
-            onPress={() => router.push('/streak')}
-          />
+          <Pressable style={styles.progressChip} onPress={() => setPlanOpen(true)}>
+            <Text style={styles.progressText}>My progress</Text>
+            <Text style={styles.progressChevron}>▾</Text>
+          </Pressable>
+
+          <StreakPill streak={streak} compact onPress={() => router.push('/streak')} />
         </View>
 
-        <Pressable style={styles.progressToggle} onPress={() => setProgressOpen((v) => !v)}>
-          <Text style={styles.progressLabel}>My progress</Text>
-          <Text style={styles.progressChevron}>{progressOpen ? '▴' : '▾'}</Text>
-        </Pressable>
-
-        {progressOpen && (
-          <Animated.View entering={FadeInUp.duration(280)} style={styles.progressPanel}>
-            <Text style={styles.progressMeta}>
-              {onboarding.proficiency} · {onboarding.motivation} · {freeSessions} free sessions
-            </Text>
-          </Animated.View>
-        )}
-
         <View style={styles.center}>
-          <Animated.View layout={LinearTransition.springify()} style={styles.focusCard}>
-            <NobiAvatar state="idle" size={140} />
+          <Animated.View layout={LinearTransition.duration(250)} style={styles.focusCard}>
+            <MascotGlow size={150}>
+              <NobiAvatar state="idle" size={130} softAura />
+            </MascotGlow>
             <Text style={styles.lessonSubtitle}>{FIRST_LESSON.subtitle}</Text>
             <Text style={styles.lessonTitle}>{activeLesson?.title ?? FIRST_LESSON.title}</Text>
-            <Pressable
-              style={styles.startBtn}
+            <PrimaryButton
+              title="Start"
               onPress={() => activeLesson && void startLesson(activeLesson)}
-            >
-              <Text style={styles.startBtnText}>Start</Text>
-            </Pressable>
+              style={styles.startBtn}
+            />
             <View style={styles.dots}>
               {focusLessons.map((_, i) => (
                 <Pressable key={i} onPress={() => setLessonIndex(i)} hitSlop={8}>
@@ -146,12 +150,10 @@ export function HomeScreen() {
           </Animated.View>
         </View>
 
-        <MyPlanDrawer
-          onboarding={onboarding}
-          scenarios={scenarios}
-          freeSessionsRemaining={freeSessions}
-          onStartScenario={(s) => void startLesson(s)}
-        />
+        <Pressable style={styles.planHandle} onPress={() => setPlanOpen(true)}>
+          <View style={styles.planGrabber} />
+          <Text style={styles.planHandleText}>My plan</Text>
+        </Pressable>
       </SafeAreaView>
 
       <LanguageLearningOverlay
@@ -159,6 +161,16 @@ export function HomeScreen() {
         onboarding={onboarding}
         onClose={() => setLangOpen(false)}
         onSelectLanguage={(lang) => void changeLanguage(lang)}
+      />
+
+      <LearningPathSheet
+        visible={planOpen}
+        onboarding={onboarding}
+        scenarios={scenarios}
+        freeSessionsRemaining={freeSessions}
+        onClose={() => setPlanOpen(false)}
+        onStartScenario={(s) => void startLesson(s)}
+        onStartRoleplay={() => void startRoleplay()}
       />
     </View>
   );
@@ -172,53 +184,47 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 20,
-    paddingTop: 8,
+    paddingHorizontal: 16,
+    paddingTop: 4,
+    paddingBottom: 8,
+    gap: 8,
   },
-  langPill: {
+  chip: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
-    backgroundColor: colors.surface,
-    paddingHorizontal: 14,
+    gap: 6,
+    backgroundColor: colors.chipBg,
+    paddingHorizontal: 12,
     paddingVertical: 8,
     borderRadius: 20,
     borderWidth: 1,
     borderColor: colors.border,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+    elevation: 2,
   },
-  langFlag: { fontSize: 16 },
-  langLevel: {
+  chipFlag: { fontSize: 16 },
+  chipText: {
     ...typography.label,
-    color: colors.primaryDark,
+    color: colors.text,
     fontWeight: '700',
   },
-  progressToggle: {
+  progressChip: {
+    flex: 1,
     alignItems: 'center',
-    paddingVertical: 8,
+    paddingVertical: 6,
   },
-  progressLabel: {
+  progressText: {
     ...typography.label,
     color: colors.primary,
+    fontWeight: '600',
   },
   progressChevron: {
     color: colors.primary,
-    fontSize: 10,
-    marginTop: 2,
-  },
-  progressPanel: {
-    marginHorizontal: 20,
-    backgroundColor: colors.surface,
-    borderRadius: 16,
-    padding: 14,
-    marginBottom: 8,
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  progressMeta: {
-    ...typography.caption,
-    color: colors.textMuted,
-    textAlign: 'center',
-    textTransform: 'capitalize',
+    fontSize: 9,
+    marginTop: 1,
   },
   center: {
     flex: 1,
@@ -229,40 +235,28 @@ const styles = StyleSheet.create({
   focusCard: {
     alignItems: 'center',
     width: '100%',
-    gap: 8,
+    gap: 4,
   },
   lessonSubtitle: {
     ...typography.caption,
     color: colors.textMuted,
-    marginTop: 12,
+    marginTop: 16,
   },
   lessonTitle: {
     ...typography.hero,
     color: colors.text,
     textAlign: 'center',
     lineHeight: 44,
+    marginBottom: 8,
   },
   startBtn: {
-    backgroundColor: colors.primary,
-    borderRadius: 28,
-    paddingVertical: 16,
-    paddingHorizontal: 48,
-    marginTop: 12,
-    shadowColor: colors.primary,
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.25,
-    shadowRadius: 12,
-    elevation: 4,
-  },
-  startBtnText: {
-    ...typography.label,
-    color: '#fff',
-    fontSize: 17,
+    marginTop: 8,
+    minWidth: 200,
   },
   dots: {
     flexDirection: 'row',
     gap: 8,
-    marginTop: 16,
+    marginTop: 20,
     alignItems: 'center',
   },
   dot: {
@@ -272,9 +266,31 @@ const styles = StyleSheet.create({
     backgroundColor: colors.border,
   },
   dotActive: {
-    width: 22,
+    width: 24,
     height: 8,
     borderRadius: 4,
     backgroundColor: colors.primary,
+  },
+  planHandle: {
+    alignItems: 'center',
+    paddingTop: 8,
+    paddingBottom: 12,
+    backgroundColor: colors.surface,
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    borderTopWidth: 1,
+    borderColor: colors.border,
+  },
+  planGrabber: {
+    width: 36,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: colors.border,
+    marginBottom: 6,
+  },
+  planHandleText: {
+    ...typography.label,
+    color: colors.primary,
+    fontWeight: '600',
   },
 });

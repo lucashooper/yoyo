@@ -10,6 +10,7 @@ import { ErrorBoundary } from '../components/ErrorBoundary';
 import { GrammarCorrectionCard } from '../components/GrammarCorrectionCard';
 import { HelpModal } from '../components/HelpModal';
 import { AudioWaveBar } from '../components/AudioWaveBar';
+import { MascotGlow } from '../components/MascotGlow';
 import { NobiAvatar } from '../components/NobiAvatar';
 import { TranscriptDrawer } from '../components/TranscriptDrawer';
 import { useVoiceSession } from '../hooks/useVoiceSession';
@@ -25,7 +26,20 @@ import {
 } from '../services/storage';
 import { colors } from '../theme/colors';
 import { typography } from '../theme/typography';
-import type { OnboardingData, Scenario } from '../types';
+import type { OnboardingData, Scenario, VoiceSessionState } from '../types';
+
+function statusLabel(state: VoiceSessionState, error: string | null): string {
+  const map: Record<VoiceSessionState, string> = {
+    idle: 'Ready',
+    connecting: 'Connecting…',
+    listening: "I'm listening — speak anytime",
+    user_speaking: 'Hearing you…',
+    thinking: 'Thinking…',
+    speaking: 'Nobi is speaking…',
+    error: error ?? 'Connection lost',
+  };
+  return map[state];
+}
 
 function VoiceSessionInner({
   onboarding,
@@ -133,6 +147,10 @@ function VoiceSessionInner({
             <Text style={styles.menuIcon}>⋮⋮</Text>
           </Pressable>
 
+          <Text style={styles.scenarioTitle} numberOfLines={1}>
+            {onboarding.scenario.title}
+          </Text>
+
           <Pressable style={styles.iconBtn} onPress={() => void handleExit()} hitSlop={16}>
             <Text style={styles.iconText}>✕</Text>
           </Pressable>
@@ -173,7 +191,10 @@ function VoiceSessionInner({
         )}
 
         <View style={styles.center}>
-          <NobiAvatar state={state} amplitude={amplitude} size={200} softAura />
+          <MascotGlow size={220}>
+            <NobiAvatar state={state} amplitude={amplitude} size={180} softAura />
+          </MascotGlow>
+          <Text style={styles.statusText}>{statusLabel(state, error)}</Text>
         </View>
 
         <View style={styles.footer}>
@@ -183,10 +204,12 @@ function VoiceSessionInner({
             onReconnect={handleReconnect}
           />
           <GrammarCorrectionCard correction={correction} onDismiss={dismissCorrection} />
-          <AudioWaveBar
-            amplitude={amplitude}
-            active={state !== 'idle' && state !== 'connecting' && state !== 'error'}
-          />
+          <View style={styles.waveWrap}>
+            <AudioWaveBar
+              amplitude={amplitude}
+              active={state !== 'idle' && state !== 'connecting' && state !== 'error'}
+            />
+          </View>
           <TranscriptDrawer entries={transcript} minimal />
         </View>
       </SafeAreaView>
@@ -253,19 +276,21 @@ export function VoiceSessionScreen() {
 const styles = StyleSheet.create({
   root: {
     flex: 1,
-    backgroundColor: colors.canvas,
+    backgroundColor: colors.backgroundWarm,
   },
   safe: { flex: 1 },
   loading: {
     flex: 1,
-    backgroundColor: colors.canvas,
+    backgroundColor: colors.backgroundWarm,
   },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 20,
-    paddingTop: 8,
+    paddingHorizontal: 16,
+    paddingTop: 4,
+    paddingBottom: 8,
+    gap: 8,
   },
   iconBtn: {
     width: 40,
@@ -273,7 +298,9 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: colors.surfaceMuted,
+    backgroundColor: colors.chipBg,
+    borderWidth: 1,
+    borderColor: colors.border,
   },
   menuIcon: {
     ...typography.label,
@@ -284,12 +311,19 @@ const styles = StyleSheet.create({
   iconText: {
     fontSize: 16,
     color: colors.textMuted,
-    fontWeight: '500',
+    fontWeight: '600',
+  },
+  scenarioTitle: {
+    ...typography.caption,
+    color: colors.textMuted,
+    flex: 1,
+    textAlign: 'center',
+    fontWeight: '600',
   },
   menuSheet: {
     position: 'absolute',
-    top: 64,
-    left: 20,
+    top: 56,
+    left: 16,
     backgroundColor: colors.surface,
     borderRadius: 16,
     paddingVertical: 8,
@@ -315,8 +349,23 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
+    paddingHorizontal: 24,
+  },
+  statusText: {
+    ...typography.subtitle,
+    color: colors.textMuted,
+    marginTop: 16,
+    textAlign: 'center',
   },
   footer: {
     paddingBottom: 0,
+  },
+  waveWrap: {
+    backgroundColor: colors.surface,
+    marginHorizontal: 16,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: colors.border,
+    marginBottom: 8,
   },
 });

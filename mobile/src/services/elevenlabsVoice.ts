@@ -220,6 +220,32 @@ export class ElevenLabsVoiceService {
     return data.signed_url;
   }
 
+  private async sendAgentInitiation(): Promise<void> {
+    try {
+      const voice = await getVoiceForLanguage(this.language);
+      const initiation = buildAgentInitiationPayload(
+        this.language,
+        this.scenarioPrompt,
+        voice.voiceId,
+      );
+      logger.info('voice', 'WebSocket connected — sending initiation', {
+        dynamicVariables: initiation.dynamic_variables,
+        agentLanguage: initiation.conversation_config_override.agent.language,
+        voiceId: `${voice.voiceId.slice(0, 8)}…`,
+        voiceName: voice.name,
+      });
+      if (this.ws?.readyState !== WebSocket.OPEN) {
+        logger.warn('voice', 'WebSocket closed before initiation could be sent');
+        return;
+      }
+      this.ws.send(JSON.stringify(initiation));
+    } catch (err) {
+      logger.error('voice', 'Failed to build agent initiation payload', err);
+      this.callbacks.onError('Failed to configure voice for this language.');
+      this.setState('error');
+    }
+  }
+
   private async connectWebSocket(): Promise<void> {
     try {
       let url: string;
@@ -239,12 +265,8 @@ export class ElevenLabsVoiceService {
 
       this.ws.onopen = () => {
         openedAt = Date.now();
-        const initiation = buildAgentInitiationPayload(this.language, this.scenarioPrompt);
-        logger.info('voice', 'WebSocket connected — sending initiation', {
-          dynamicVariables: initiation.dynamic_variables,
-        });
-        this.ws?.send(JSON.stringify(initiation));
         this.setState('connecting');
+        void this.sendAgentInitiation();
       };
 
       this.ws.onmessage = (event) => {

@@ -52,19 +52,39 @@ export interface OnboardingFlowState {
 export const PLAN_LOADING_CARDS: {
   title: string;
   body: string;
+  icon: string;
 }[] = [
   {
     title: 'Your starting point',
     body: "We'll begin with the absolute basics and build from there step by step.",
+    icon: '🎯',
   },
   {
     title: 'Daily speaking habit',
     body: 'Short voice sessions designed to fit into your day — no flashcards required.',
+    icon: '☀️',
   },
   {
     title: 'Gentle corrections',
     body: 'Nobi listens, responds naturally, and nudges you when grammar slips.',
+    icon: '✨',
   },
+];
+
+export interface LearningObjective {
+  id: string;
+  title: string;
+  prompt: string;
+  status: 'active' | 'upcoming' | 'locked';
+}
+
+export const GREETING_OBJECTIVES: Omit<LearningObjective, 'status'>[] = [
+  { id: 'obj_hello', title: 'Say hello', prompt: 'Practice greeting someone warmly in {{language}}.' },
+  { id: 'obj_names', title: 'Ask and give names', prompt: 'Introduce yourself and ask for someone\'s name.' },
+  { id: 'obj_how', title: 'Ask how someone is', prompt: 'Ask how someone is doing today.' },
+  { id: 'obj_answer', title: 'Answer how you are', prompt: 'Respond when someone asks how you are feeling.' },
+  { id: 'obj_from', title: "Say where you're from", prompt: 'Share where you are from and ask a follow-up.' },
+  { id: 'obj_where', title: "Ask where they're from", prompt: 'Ask where someone is from and react naturally.' },
 ];
 
 export const FIRST_LESSON = {
