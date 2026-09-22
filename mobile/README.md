@@ -28,7 +28,16 @@ npm install
 cp .env.example .env.local
 ```
 
-Edit **`mobile/.env.local`** with your keys (**never commit this file**). The file must live inside the `mobile/` folder — not the repo root:
+Edit **`mobile/.env.local`** with your keys (**never commit this file**).
+
+**Important:** the file must sit next to `mobile/package.json` — **not** inside `mobile/app/`, and not at the repo root:
+
+```
+mobile/
+  package.json
+  .env.local   ← here
+  app/         ← NOT here
+```
 
 ```bash
 # from repo root

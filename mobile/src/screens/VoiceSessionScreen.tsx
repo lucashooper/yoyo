@@ -8,8 +8,8 @@ import { ConnectionBanner, ErrorToast } from '../components/ErrorToast';
 import { ErrorBoundary } from '../components/ErrorBoundary';
 import { GrammarCorrectionCard } from '../components/GrammarCorrectionCard';
 import { HelpModal } from '../components/HelpModal';
+import { NobiAvatar } from '../components/NobiAvatar';
 import { TranscriptDrawer } from '../components/TranscriptDrawer';
-import { WaveLogo } from '../components/WaveLogo';
 import { useVoiceSession } from '../hooks/useVoiceSession';
 import { logger } from '../services/logger';
 import { logSession, signInAnonymously } from '../services/supabase';
@@ -28,10 +28,9 @@ function VoiceSessionInner({ onboarding }: { onboarding: OnboardingData }) {
   const [menuVisible, setMenuVisible] = useState(false);
   const [sessionId] = useState(() => `session_${Date.now()}`);
   const [toastVisible, setToastVisible] = useState(false);
-  const [isSpeaking, setIsSpeaking] = useState(false);
-
   const {
     state,
+    amplitude,
     transcript,
     correction,
     error,
@@ -44,10 +43,6 @@ function VoiceSessionInner({ onboarding }: { onboarding: OnboardingData }) {
     scenarioPrompt: onboarding.scenario.prompt,
     autoStart: true,
   });
-
-  useEffect(() => {
-    setIsSpeaking(state === 'speaking');
-  }, [state]);
 
   useEffect(() => {
     if (error) {
@@ -135,7 +130,7 @@ function VoiceSessionInner({ onboarding }: { onboarding: OnboardingData }) {
         )}
 
         <Animated.View layout={LinearTransition.springify()} style={styles.center}>
-          <WaveLogo size="lg" animated={isSpeaking || state === 'listening'} />
+          <NobiAvatar state={state} amplitude={amplitude} size={220} />
         </Animated.View>
 
         <View style={styles.footer}>

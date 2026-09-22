@@ -135,13 +135,13 @@ const styles = StyleSheet.create({
     paddingBottom: 6,
   },
   chevronMinimal: {
-    color: colors.pingoBlue,
+    color: colors.primary,
     fontSize: 12,
     lineHeight: 12,
   },
   handleMinimal: {
     ...typography.label,
-    color: colors.pingoBlue,
+    color: colors.primary,
     marginTop: 2,
   },
   handleText: {

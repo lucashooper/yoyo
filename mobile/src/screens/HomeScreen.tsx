@@ -1,12 +1,13 @@
 import * as Haptics from 'expo-haptics';
 import { router, useFocusEffect } from 'expo-router';
 import React, { useCallback, useMemo, useState } from 'react';
-import { Modal, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 import Animated, { FadeInUp, LinearTransition } from 'react-native-reanimated';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { LanguageLearningOverlay } from '../components/LanguageLearningOverlay';
 import { MyPlanDrawer } from '../components/MyPlanDrawer';
+import { NobiAvatar } from '../components/NobiAvatar';
 import { StreakPill } from '../components/StreakPill';
-import { WaveLogo } from '../components/WaveLogo';
 import { useStreak } from '../hooks/useStreak';
 import {
   getCustomScenarios,
@@ -21,8 +22,15 @@ import {
   FIRST_LESSON,
   LANGUAGE_OPTIONS,
   type OnboardingData,
+  type ProficiencyLevel,
   type Scenario,
 } from '../types';
+
+function levelShort(proficiency: ProficiencyLevel): string {
+  if (proficiency === 'beginner') return 'L1';
+  if (proficiency === 'intermediate') return 'L2';
+  return 'L3';
+}
 
 export function HomeScreen() {
   const { streak, refresh } = useStreak();
@@ -80,7 +88,6 @@ export function HomeScreen() {
     const next = { ...onboarding, language: value };
     await saveOnboarding(next);
     setOnboarding(next);
-    setLangOpen(false);
   };
 
   if (!onboarding) {
@@ -93,10 +100,14 @@ export function HomeScreen() {
         <View style={styles.topBar}>
           <Pressable style={styles.langPill} onPress={() => setLangOpen(true)}>
             <Text style={styles.langFlag}>{languageMeta?.flag ?? '🌐'}</Text>
-            <Text style={styles.langLevel}>L1</Text>
+            <Text style={styles.langLevel}>{levelShort(onboarding.proficiency)}</Text>
           </Pressable>
 
-          <StreakPill streak={streak} compact />
+          <StreakPill
+            streak={streak}
+            compact
+            onPress={() => router.push('/streak')}
+          />
         </View>
 
         <Pressable style={styles.progressToggle} onPress={() => setProgressOpen((v) => !v)}>
@@ -114,7 +125,7 @@ export function HomeScreen() {
 
         <View style={styles.center}>
           <Animated.View layout={LinearTransition.springify()} style={styles.focusCard}>
-            <WaveLogo size="md" animated />
+            <NobiAvatar state="idle" size={140} />
             <Text style={styles.lessonSubtitle}>{FIRST_LESSON.subtitle}</Text>
             <Text style={styles.lessonTitle}>{activeLesson?.title ?? FIRST_LESSON.title}</Text>
             <Pressable
@@ -141,34 +152,20 @@ export function HomeScreen() {
         />
       </SafeAreaView>
 
-      <Modal visible={langOpen} animationType="fade" transparent>
-        <Pressable style={styles.modalBackdrop} onPress={() => setLangOpen(false)}>
-          <View style={styles.langSheet}>
-            <Text style={styles.sheetTitle}>Language</Text>
-            {LANGUAGE_OPTIONS.map((opt) => (
-              <Pressable
-                key={opt.value}
-                style={[
-                  styles.langOption,
-                  onboarding.language === opt.value && styles.langOptionActive,
-                ]}
-                onPress={() => void changeLanguage(opt.value)}
-              >
-                <Text style={styles.langFlag}>{opt.flag}</Text>
-                <Text style={styles.langOptionLabel}>{opt.label}</Text>
-              </Pressable>
-            ))}
-          </View>
-        </Pressable>
-      </Modal>
+      <LanguageLearningOverlay
+        visible={langOpen}
+        onboarding={onboarding}
+        onClose={() => setLangOpen(false)}
+        onSelectLanguage={(lang) => void changeLanguage(lang)}
+      />
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: colors.canvas },
+  root: { flex: 1, backgroundColor: colors.backgroundWarm },
   safe: { flex: 1 },
-  loading: { flex: 1, backgroundColor: colors.canvas },
+  loading: { flex: 1, backgroundColor: colors.backgroundWarm },
   topBar: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -180,15 +177,17 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
-    backgroundColor: colors.surfaceMuted,
+    backgroundColor: colors.surface,
     paddingHorizontal: 14,
     paddingVertical: 8,
     borderRadius: 20,
+    borderWidth: 1,
+    borderColor: colors.border,
   },
   langFlag: { fontSize: 16 },
   langLevel: {
     ...typography.label,
-    color: colors.text,
+    color: colors.primaryDark,
     fontWeight: '700',
   },
   progressToggle: {
@@ -197,10 +196,10 @@ const styles = StyleSheet.create({
   },
   progressLabel: {
     ...typography.label,
-    color: colors.pingoBlue,
+    color: colors.primary,
   },
   progressChevron: {
-    color: colors.pingoBlue,
+    color: colors.primary,
     fontSize: 10,
     marginTop: 2,
   },
@@ -228,12 +227,12 @@ const styles = StyleSheet.create({
   focusCard: {
     alignItems: 'center',
     width: '100%',
-    gap: 12,
+    gap: 8,
   },
   lessonSubtitle: {
     ...typography.caption,
     color: colors.textMuted,
-    marginTop: 20,
+    marginTop: 12,
   },
   lessonTitle: {
     ...typography.hero,
@@ -242,12 +241,12 @@ const styles = StyleSheet.create({
     lineHeight: 44,
   },
   startBtn: {
-    backgroundColor: colors.pingoBlue,
+    backgroundColor: colors.primary,
     borderRadius: 28,
     paddingVertical: 16,
     paddingHorizontal: 48,
     marginTop: 12,
-    shadowColor: colors.pingoBlue,
+    shadowColor: colors.primary,
     shadowOffset: { width: 0, height: 6 },
     shadowOpacity: 0.25,
     shadowRadius: 12,
@@ -274,35 +273,6 @@ const styles = StyleSheet.create({
     width: 22,
     height: 8,
     borderRadius: 4,
-    backgroundColor: colors.pingoBlue,
-  },
-  modalBackdrop: {
-    flex: 1,
-    backgroundColor: colors.overlay,
-    justifyContent: 'center',
-    padding: 24,
-  },
-  langSheet: {
-    backgroundColor: colors.surface,
-    borderRadius: 24,
-    padding: 20,
-  },
-  sheetTitle: {
-    ...typography.title,
-    color: colors.text,
-    marginBottom: 12,
-  },
-  langOption: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    paddingVertical: 12,
-    paddingHorizontal: 8,
-    borderRadius: 12,
-  },
-  langOptionActive: { backgroundColor: '#EBF3FE' },
-  langOptionLabel: {
-    ...typography.subtitle,
-    color: colors.text,
+    backgroundColor: colors.primary,
   },
 });

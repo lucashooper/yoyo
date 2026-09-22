@@ -1,25 +1,35 @@
 import React from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { StreakFlameIcon } from './StreakFlameIcon';
 import { colors } from '../theme/colors';
 import { typography } from '../theme/typography';
 
 interface StreakPillProps {
   streak: number;
   compact?: boolean;
+  onPress?: () => void;
 }
 
-export function StreakPill({ streak, compact = false }: StreakPillProps) {
-  return (
-    <View style={[styles.pill, compact && styles.pillCompact]}>
+export function StreakPill({ streak, compact = false, onPress }: StreakPillProps) {
+  const content = (
+    <>
       <Text style={styles.count}>{streak}</Text>
-      <Text style={styles.emoji}>🔥</Text>
+      <StreakFlameIcon size={compact ? 18 : 20} />
       {!compact && (
-        <Text style={styles.text}>
-          day{streak === 1 ? '' : 's'}
-        </Text>
+        <Text style={styles.text}>day{streak === 1 ? '' : 's'}</Text>
       )}
-    </View>
+    </>
   );
+
+  if (onPress) {
+    return (
+      <Pressable style={[styles.pill, compact && styles.pillCompact]} onPress={onPress}>
+        {content}
+      </Pressable>
+    );
+  }
+
+  return <View style={[styles.pill, compact && styles.pillCompact]}>{content}</View>;
 }
 
 const styles = StyleSheet.create({

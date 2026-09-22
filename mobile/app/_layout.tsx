@@ -23,6 +23,8 @@ export default function RootLayout() {
           <Stack.Screen name="onboarding" />
           <Stack.Screen name="home" />
           <Stack.Screen name="session" options={{ animation: 'slide_from_bottom' }} />
+          <Stack.Screen name="settings" options={{ animation: 'slide_from_right' }} />
+          <Stack.Screen name="streak" options={{ animation: 'slide_from_bottom' }} />
         </Stack>
       </ErrorBoundary>
     </GestureHandlerRootView>

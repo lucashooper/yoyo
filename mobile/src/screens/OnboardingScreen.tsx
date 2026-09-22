@@ -25,6 +25,7 @@ import {
   OnboardingAudioBar,
 } from '../components/AgentVoiceHeader';
 import { SocialSignInButtons } from '../components/SocialSignInButtons';
+import { NobiAvatar } from '../components/NobiAvatar';
 import { WaveLogo } from '../components/WaveLogo';
 import { speakAgentLine, stopAgentSpeech, type SpeechController } from '../services/onboardingSpeech';
 import {
@@ -239,7 +240,8 @@ export function OnboardingScreen() {
                   exiting={SPRING_EXIT}
                   style={styles.splash}
                 >
-                  <WaveLogo size="lg" animated />
+                  <NobiAvatar state="idle" size={160} />
+                  <Text style={styles.brand}>Nobi</Text>
                   <Pressable
                     style={styles.splashNext}
                     onPress={() => go('language')}
@@ -432,7 +434,7 @@ export function OnboardingScreen() {
                     ))}
                   </View>
 
-                  <ActivityIndicator size="large" color={colors.pingoBlue} style={{ marginTop: 20 }} />
+                  <ActivityIndicator size="large" color={colors.primary} style={{ marginTop: 20 }} />
                   <Animated.Text entering={FadeIn} style={styles.loadingText}>
                     {loadingText}
                   </Animated.Text>
@@ -484,7 +486,7 @@ export function OnboardingScreen() {
 }
 
 const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: colors.canvas },
+  root: { flex: 1, backgroundColor: colors.backgroundWarm },
   safe: { flex: 1 },
   flex: { flex: 1 },
   scroll: {
@@ -499,14 +501,19 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     gap: 48,
   },
+  brand: {
+    ...typography.hero,
+    color: colors.primaryDark,
+    marginTop: 8,
+  },
   splashNext: {
     width: 72,
     height: 72,
     borderRadius: 36,
-    backgroundColor: colors.pingoBlue,
+    backgroundColor: colors.primary,
     alignItems: 'center',
     justifyContent: 'center',
-    shadowColor: colors.pingoBlue,
+    shadowColor: colors.primary,
     shadowOffset: { width: 0, height: 8 },
     shadowOpacity: 0.35,
     shadowRadius: 16,
@@ -550,17 +557,17 @@ const styles = StyleSheet.create({
     borderColor: colors.border,
   },
   langPillActive: {
-    borderColor: colors.pingoBlue,
-    backgroundColor: '#EBF3FE',
+    borderColor: colors.primary,
+    backgroundColor: colors.primarySoft,
   },
   langFlag: { fontSize: 22 },
   langPillText: {
     ...typography.subtitle,
     color: colors.text,
   },
-  langPillTextActive: { color: colors.pingoBlue },
+  langPillTextActive: { color: colors.primaryDark },
   primaryPill: {
-    backgroundColor: colors.pingoBlue,
+    backgroundColor: colors.primary,
     borderRadius: 28,
     paddingVertical: 18,
     alignItems: 'center',
@@ -602,15 +609,15 @@ const styles = StyleSheet.create({
     borderRadius: 24,
     paddingVertical: 16,
     borderWidth: 1.5,
-    borderColor: colors.pingoBlue,
+    borderColor: colors.primary,
   },
   micBtnActive: {
-    backgroundColor: colors.pingoBlue,
-    borderColor: colors.pingoBlue,
+    backgroundColor: colors.primary,
+    borderColor: colors.primary,
   },
   micLabel: {
     ...typography.label,
-    color: colors.pingoBlue,
+    color: colors.primary,
   },
   micLabelActive: { color: '#fff' },
   legal: {
@@ -629,8 +636,8 @@ const styles = StyleSheet.create({
     borderColor: colors.border,
   },
   choiceCardActive: {
-    borderColor: colors.pingoBlue,
-    backgroundColor: '#EBF3FE',
+    borderColor: colors.primary,
+    backgroundColor: colors.primarySoft,
   },
   choiceIcon: { fontSize: 24, marginBottom: 6 },
   choiceTitle: {
@@ -638,7 +645,7 @@ const styles = StyleSheet.create({
     color: colors.text,
     marginBottom: 4,
   },
-  choiceTitleActive: { color: colors.pingoBlue },
+  choiceTitleActive: { color: colors.primaryDark },
   choiceDesc: {
     ...typography.caption,
     color: colors.textMuted,
@@ -694,7 +701,7 @@ const styles = StyleSheet.create({
     width: 24,
     height: 8,
     borderRadius: 4,
-    backgroundColor: colors.pingoBlue,
+    backgroundColor: colors.primary,
   },
   loadingText: {
     ...typography.caption,
@@ -723,7 +730,7 @@ const styles = StyleSheet.create({
   },
   guestText: {
     ...typography.label,
-    color: colors.pingoBlue,
+    color: colors.primary,
     fontSize: 15,
   },
   freeNote: {

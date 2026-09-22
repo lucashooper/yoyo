@@ -194,7 +194,7 @@ const styles = StyleSheet.create({
   },
   progressFill: {
     height: '100%',
-    backgroundColor: colors.pingoBlue,
+    backgroundColor: colors.primary,
     borderRadius: 2,
   },
   speedBtn: {
@@ -211,7 +211,7 @@ const styles = StyleSheet.create({
   },
   listeningText: {
     ...typography.tiny,
-    color: colors.pingoBlue,
+    color: colors.primary,
     textAlign: 'center',
     marginTop: 8,
     fontWeight: '600',
