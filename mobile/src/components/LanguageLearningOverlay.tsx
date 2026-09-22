@@ -5,6 +5,7 @@ import React from 'react';
 import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import Animated, { FadeIn } from 'react-native-reanimated';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { previewLanguageVoice } from '../services/languagePreview';
 import { colors } from '../theme/colors';
 import { typography } from '../theme/typography';
 import { LANGUAGE_OPTIONS, type OnboardingData, type ProficiencyLevel } from '../types';
@@ -54,6 +55,7 @@ export function LanguageLearningOverlay({
                     onPress={() => {
                       void Haptics.selectionAsync();
                       onSelectLanguage(opt.value);
+                      previewLanguageVoice(opt.value);
                     }}
                   >
                     <Text style={styles.flag}>{opt.flag}</Text>

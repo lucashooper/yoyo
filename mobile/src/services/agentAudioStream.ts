@@ -75,10 +75,16 @@ export class AgentAudioStream {
 function pcmAmplitude(data: ArrayBuffer): number {
   const samples = new Int16Array(data);
   if (samples.length === 0) return 0;
+
+  let peak = 0;
   let sum = 0;
   for (let i = 0; i < samples.length; i++) {
-    const n = samples[i]! / 32768;
+    const n = Math.abs(samples[i]!) / 32768;
+    peak = Math.max(peak, n);
     sum += n * n;
   }
-  return Math.min(1, Math.sqrt(sum / samples.length) * 4);
+
+  const rms = Math.sqrt(sum / samples.length);
+  // Blend peak + RMS so quiet speech still moves the wave UI
+  return Math.min(1, Math.max(rms * 10, peak * 6));
 }

@@ -10,7 +10,12 @@ import {
 } from 'expo-audio';
 import * as FileSystem from 'expo-file-system/legacy';
 import type { GrammarCorrection, SupportedLanguage, TranscriptEntry, VoiceSessionState } from '../types';
-import { arrayBufferToBase64, decodeBase64ToArrayBuffer } from './audioEncoding';
+import {
+  arrayBufferToBase64,
+  decodeBase64ToArrayBuffer,
+  parsePcmSampleRate,
+  pcm16ToWav,
+} from './audioEncoding';
 import { detectCorrection } from './corrections';
 import { humanizeError, logger } from './logger';
 import { env } from '../config/env';
@@ -99,6 +104,8 @@ export class ElevenLabsVoiceService {
   private audioQueue: ArrayBuffer[] = [];
   private processingAudioQueue = false;
   private agentMode = false;
+  private agentOutputSampleRate = 16000;
+  private agentOutputIsPcm = true;
 
   constructor(
     language: SupportedLanguage,
@@ -340,7 +347,16 @@ export class ElevenLabsVoiceService {
 
       if (type === 'conversation_initiation_metadata') {
         this.conversationReady = true;
-        logger.info('voice', 'Agent conversation ready', message.conversation_initiation_metadata_event);
+        const meta = message.conversation_initiation_metadata_event as
+          | { agent_output_audio_format?: string }
+          | undefined;
+        const outputFormat = meta?.agent_output_audio_format ?? 'pcm_16000';
+        this.agentOutputIsPcm = outputFormat.toLowerCase().includes('pcm');
+        this.agentOutputSampleRate = parsePcmSampleRate(outputFormat);
+        logger.info('voice', 'Agent conversation ready', {
+          ...meta,
+          playback: this.agentOutputIsPcm ? 'wav-wrapped-pcm' : 'native',
+        });
         this.setState('listening');
         if (!this.agentStream && !this.agentStreamPending) {
           this.agentStreamPending = true;
@@ -497,7 +513,16 @@ export class ElevenLabsVoiceService {
     let peakAmplitude = 0;
 
     await this.agentStream.start(({ base64, amplitude }) => {
-      if (!this.active || this.isPlayingAudio || !this.conversationReady) return;
+      if (!this.active || !this.conversationReady) return;
+
+      peakAmplitude = Math.max(peakAmplitude, amplitude);
+
+      if (this.isPlayingAudio) {
+        this.callbacks.onAmplitude(Math.max(amplitude, 0.2));
+      } else {
+        this.callbacks.onAmplitude(amplitude);
+      }
+
       if (this.ws?.readyState !== WebSocket.OPEN) {
         if (chunksSent > 0 && Date.now() - lastAmplitudeLog > 3000) {
           logger.warn('voice', 'Mic active but WebSocket closed — cannot send audio');
@@ -505,9 +530,6 @@ export class ElevenLabsVoiceService {
         }
         return;
       }
-
-      peakAmplitude = Math.max(peakAmplitude, amplitude);
-      this.callbacks.onAmplitude(amplitude);
 
       const now = Date.now();
       if (now - lastAmplitudeLog > 2000) {
@@ -840,12 +862,24 @@ export class ElevenLabsVoiceService {
     try {
       await this.pauseMeteringForPlayback();
       this.setState('speaking');
-      logger.info('voice', 'Playback start', { bytes: buffer.byteLength });
+      this.startSpeakAmplitudeAnimation();
+
+      const playable =
+        this.agentMode && this.agentOutputIsPcm
+          ? pcm16ToWav(buffer, this.agentOutputSampleRate, 1)
+          : buffer;
+      const extension = this.agentMode && this.agentOutputIsPcm ? 'wav' : 'mp3';
+
+      logger.info('voice', 'Playback start', {
+        bytes: buffer.byteLength,
+        format: extension,
+        sampleRate: this.agentOutputSampleRate,
+      });
 
       await this.configureAudioMode();
 
-      const base64 = arrayBufferToBase64(buffer);
-      tempUri = `${FileSystem.cacheDirectory}nobi-chunk-${Date.now()}.mp3`;
+      const base64 = arrayBufferToBase64(playable);
+      tempUri = `${FileSystem.cacheDirectory}nobi-chunk-${Date.now()}.${extension}`;
       await FileSystem.writeAsStringAsync(tempUri, base64, {
         encoding: FileSystem.EncodingType.Base64,
       });
@@ -856,14 +890,21 @@ export class ElevenLabsVoiceService {
       }
 
       this.player = createAudioPlayer({ uri: tempUri }, { updateInterval: 80 });
+      this.player.volume = 1;
       this.player.play();
 
       await new Promise<void>((resolve, reject) => {
+        const timeout = setTimeout(() => {
+          subscription.remove();
+          reject(new Error('Playback timed out'));
+        }, 30000);
+
         const subscription = this.player!.addListener(
           'playbackStatusUpdate',
           (status: AudioStatus) => {
             if (!status.isLoaded) {
               if (status.error) {
+                clearTimeout(timeout);
                 subscription.remove();
                 reject(new Error(status.error));
               }
@@ -874,12 +915,10 @@ export class ElevenLabsVoiceService {
               const duration = status.duration || 1;
               const progress = Math.min(1, status.currentTime / duration);
               this.callbacks.onPlaybackProgress?.(progress);
-              this.callbacks.onAmplitude(
-                Math.min(1, 0.35 + (this.player?.volume ?? 0.75) * 0.45),
-              );
             }
 
             if (status.didJustFinish) {
+              clearTimeout(timeout);
               subscription.remove();
               resolve();
             }

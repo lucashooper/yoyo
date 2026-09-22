@@ -13,7 +13,7 @@ interface AudioWaveBarProps {
   active?: boolean;
 }
 
-const BAR_COUNT = 18;
+const BAR_COUNT = 20;
 
 function WaveBar({
   level,
@@ -23,8 +23,8 @@ function WaveBar({
   index: number;
 }) {
   const style = useAnimatedStyle(() => ({
-    height: 4 + level.value * 30,
-    opacity: 0.3 + level.value * 0.65,
+    height: 6 + level.value * 52,
+    opacity: 0.35 + level.value * 0.65,
   }));
 
   const mid = BAR_COUNT / 2;
@@ -63,17 +63,22 @@ export function AudioWaveBar({ amplitude, active = true }: AudioWaveBarProps) {
   const l15 = useSharedValue(0.1);
   const l16 = useSharedValue(0.1);
   const l17 = useSharedValue(0.1);
+  const l18 = useSharedValue(0.1);
+  const l19 = useSharedValue(0.1);
 
   const bars = useMemo(
-    () => [l0, l1, l2, l3, l4, l5, l6, l7, l8, l9, l10, l11, l12, l13, l14, l15, l16, l17],
-    [l0, l1, l2, l3, l4, l5, l6, l7, l8, l9, l10, l11, l12, l13, l14, l15, l16, l17],
+    () => [
+      l0, l1, l2, l3, l4, l5, l6, l7, l8, l9, l10, l11, l12, l13, l14, l15, l16, l17, l18, l19,
+    ],
+    [l0, l1, l2, l3, l4, l5, l6, l7, l8, l9, l10, l11, l12, l13, l14, l15, l16, l17, l18, l19],
   );
 
   useEffect(() => {
     bars.forEach((level, index) => {
       const offset = Math.sin((index / BAR_COUNT) * Math.PI * 2 + Date.now() / 280);
+      const boosted = Math.min(1, amplitude * 1.5);
       const target = active
-        ? Math.max(0.08, Math.min(1, amplitude * (0.5 + Math.abs(offset) * 0.5)))
+        ? Math.max(0.12, Math.min(1, boosted * (0.65 + Math.abs(offset) * 0.35)))
         : 0.08;
       level.value = withSpring(target, { damping: 16, stiffness: 210 });
     });
@@ -93,12 +98,13 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 3,
-    height: 38,
-    paddingHorizontal: 20,
+    gap: 4,
+    height: 64,
+    paddingHorizontal: 24,
+    marginVertical: 8,
   },
   bar: {
-    width: 3,
-    borderRadius: 3,
+    width: 4,
+    borderRadius: 4,
   },
 });

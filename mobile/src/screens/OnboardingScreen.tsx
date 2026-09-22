@@ -18,6 +18,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { AgentVoiceHeader } from '../components/AgentVoiceHeader';
 import { SocialSignInButtons } from '../components/SocialSignInButtons';
 import { NobiAvatar } from '../components/NobiAvatar';
+import { previewLanguageVoice } from '../services/languagePreview';
 import { speakAgentLine, stopAgentSpeech, type SpeechController } from '../services/onboardingSpeech';
 import {
   getProfile,
@@ -243,6 +244,7 @@ export function OnboardingScreen() {
                             onPress={() => {
                               void Haptics.selectionAsync();
                               setFlow((f) => ({ ...f, language: opt.value }));
+                              previewLanguageVoice(opt.value);
                             }}
                           >
                             <Text style={styles.langFlag}>{opt.flag}</Text>

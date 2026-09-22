@@ -185,11 +185,7 @@ function VoiceSessionInner({
           <GrammarCorrectionCard correction={correction} onDismiss={dismissCorrection} />
           <AudioWaveBar
             amplitude={amplitude}
-            active={
-              state === 'listening' ||
-              state === 'user_speaking' ||
-              state === 'speaking'
-            }
+            active={state !== 'idle' && state !== 'connecting' && state !== 'error'}
           />
           <TranscriptDrawer entries={transcript} minimal />
         </View>

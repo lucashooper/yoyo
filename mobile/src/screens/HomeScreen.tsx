@@ -9,6 +9,7 @@ import { MyPlanDrawer } from '../components/MyPlanDrawer';
 import { NobiAvatar } from '../components/NobiAvatar';
 import { StreakPill } from '../components/StreakPill';
 import { useStreak } from '../hooks/useStreak';
+import { previewLanguageVoice } from '../services/languagePreview';
 import {
   getCustomScenarios,
   getFreeSessionsRemaining,
@@ -88,6 +89,7 @@ export function HomeScreen() {
     const next = { ...onboarding, language: value };
     await saveOnboarding(next);
     setOnboarding(next);
+    previewLanguageVoice(value);
   };
 
   if (!onboarding) {
