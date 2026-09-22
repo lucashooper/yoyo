@@ -4,6 +4,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import Animated, { FadeInUp } from 'react-native-reanimated';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { CustomScenarioModal } from '../components/CustomScenarioModal';
 import { ConnectionBanner, ErrorToast } from '../components/ErrorToast';
 import { ErrorBoundary } from '../components/ErrorBoundary';
 import { GrammarCorrectionCard } from '../components/GrammarCorrectionCard';
@@ -18,15 +19,26 @@ import {
   consumeFreeSession,
   getFreeSessionsRemaining,
   getOnboarding,
+  saveCustomScenario,
+  saveOnboarding,
   updateStreakAfterSession,
 } from '../services/storage';
 import { colors } from '../theme/colors';
 import { typography } from '../theme/typography';
-import type { OnboardingData } from '../types';
+import type { OnboardingData, Scenario } from '../types';
 
-function VoiceSessionInner({ onboarding }: { onboarding: OnboardingData }) {
+function VoiceSessionInner({
+  onboarding,
+  scenarioPrompt,
+  onScenarioChange,
+}: {
+  onboarding: OnboardingData;
+  scenarioPrompt: string;
+  onScenarioChange: (scenario: Scenario) => void;
+}) {
   const [helpVisible, setHelpVisible] = useState(false);
   const [menuVisible, setMenuVisible] = useState(false);
+  const [customModalVisible, setCustomModalVisible] = useState(false);
   const [sessionId] = useState(() => `session_${Date.now()}`);
   const [toastVisible, setToastVisible] = useState(false);
   const {
@@ -41,7 +53,7 @@ function VoiceSessionInner({ onboarding }: { onboarding: OnboardingData }) {
     dismissError,
   } = useVoiceSession({
     language: onboarding.language,
-    scenarioPrompt: onboarding.scenario.prompt,
+    scenarioPrompt,
     autoStart: true,
   });
 
@@ -88,6 +100,27 @@ function VoiceSessionInner({ onboarding }: { onboarding: OnboardingData }) {
     void reconnect();
   }, [dismissError, reconnect]);
 
+  const handleCustomScenario = useCallback(
+    async (text: string) => {
+      setCustomModalVisible(false);
+      setMenuVisible(false);
+
+      const scenario: Scenario = {
+        id: `custom_${Date.now()}`,
+        title: text.length > 36 ? `${text.slice(0, 36)}…` : text,
+        prompt: `Roleplay scenario: ${text}. Stay in character, adapt naturally, and keep responses conversational for language practice.`,
+        isCustom: true,
+        icon: '🎭',
+      };
+
+      await saveCustomScenario(scenario);
+      await saveOnboarding({ ...onboarding, scenario });
+      onScenarioChange(scenario);
+      logger.info('VoiceSession', 'Custom roleplay applied', { title: scenario.title });
+    },
+    [onboarding, onScenarioChange],
+  );
+
   return (
     <View style={styles.root}>
       <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
@@ -107,6 +140,15 @@ function VoiceSessionInner({ onboarding }: { onboarding: OnboardingData }) {
 
         {menuVisible && (
           <Animated.View entering={FadeInUp.duration(220)} style={styles.menuSheet}>
+            <Pressable
+              style={styles.menuItem}
+              onPress={() => {
+                setMenuVisible(false);
+                setCustomModalVisible(true);
+              }}
+            >
+              <Text style={styles.menuItemText}>Custom roleplay</Text>
+            </Pressable>
             <Pressable
               style={styles.menuItem}
               onPress={() => {
@@ -162,12 +204,18 @@ function VoiceSessionInner({ onboarding }: { onboarding: OnboardingData }) {
         }}
       />
       <HelpModal visible={helpVisible} onClose={() => setHelpVisible(false)} />
+      <CustomScenarioModal
+        visible={customModalVisible}
+        onClose={() => setCustomModalVisible(false)}
+        onSave={(text) => void handleCustomScenario(text)}
+      />
     </View>
   );
 }
 
 export function VoiceSessionScreen() {
   const [onboarding, setOnboarding] = useState<OnboardingData | null>(null);
+  const [scenarioPrompt, setScenarioPrompt] = useState<string | null>(null);
   const [boundaryKey, setBoundaryKey] = useState(0);
 
   useEffect(() => {
@@ -177,10 +225,11 @@ export function VoiceSessionScreen() {
         return;
       }
       setOnboarding(data);
+      setScenarioPrompt(data.scenario.prompt);
     });
   }, []);
 
-  if (!onboarding) {
+  if (!onboarding || !scenarioPrompt) {
     return <View style={styles.loading} />;
   }
 
@@ -191,7 +240,16 @@ export function VoiceSessionScreen() {
       fallbackTitle="Connection lost"
       onReset={() => setBoundaryKey((k) => k + 1)}
     >
-      <VoiceSessionInner onboarding={onboarding} />
+      <VoiceSessionInner
+        key={scenarioPrompt}
+        onboarding={onboarding}
+        scenarioPrompt={scenarioPrompt}
+        onScenarioChange={(scenario) => {
+          setOnboarding((prev) => (prev ? { ...prev, scenario } : prev));
+          setScenarioPrompt(scenario.prompt);
+          setBoundaryKey((k) => k + 1);
+        }}
+      />
     </ErrorBoundary>
   );
 }

@@ -9,7 +9,7 @@ import Animated, {
 } from 'react-native-reanimated';
 import { colors } from '../theme/colors';
 import { typography } from '../theme/typography';
-import { WaveLogo } from './WaveLogo';
+import { NobiAvatar } from './NobiAvatar';
 
 interface AgentVoiceHeaderProps {
   onHelp?: () => void;
@@ -34,7 +34,7 @@ export function AgentVoiceHeader({
         <View style={styles.spacer} />
       )}
 
-      <WaveLogo size="sm" animated={false} />
+      <NobiAvatar state="idle" size={40} softAura />
 
       {showClose ? (
         <Pressable style={styles.iconBtn} onPress={onClose} hitSlop={12}>
@@ -83,7 +83,7 @@ export function AgentAvatarPulse({ isPlaying, size = 72 }: AgentAvatarPulseProps
           },
         ]}
       >
-        <WaveLogo size="sm" animated={isPlaying} />
+        <NobiAvatar state={isPlaying ? 'speaking' : 'idle'} size={size * 0.85} softAura />
       </View>
     </Animated.View>
   );

@@ -181,15 +181,55 @@ export class ElevenLabsVoiceService {
     return this.voiceId;
   }
 
+  private async resolveConversationUrl(): Promise<string> {
+    const agentId = env.elevenLabs.agentId;
+    logger.info('voice', 'Requesting signed conversation URL', { agentId: `${agentId.slice(0, 8)}…` });
+
+    const response = await fetch(
+      `https://api.elevenlabs.io/v1/convai/conversation/get-signed-url?agent_id=${encodeURIComponent(agentId)}`,
+      {
+        headers: { 'xi-api-key': env.elevenLabs.apiKey },
+      },
+    );
+
+    const body = await response.text().catch(() => '');
+
+    if (!response.ok) {
+      logger.warn('voice', 'Signed URL request failed', {
+        status: response.status,
+        body: body.slice(0, 240),
+      });
+      throw new Error(`Signed URL failed (${response.status}): ${body.slice(0, 120)}`);
+    }
+
+    const data = JSON.parse(body) as { signed_url?: string };
+    if (!data.signed_url) {
+      throw new Error('ElevenLabs response missing signed_url');
+    }
+
+    logger.info('voice', 'Signed conversation URL obtained');
+    return data.signed_url;
+  }
+
   private async connectWebSocket(): Promise<void> {
     try {
-      const url = `wss://api.elevenlabs.io/v1/convai/conversation?agent_id=${encodeURIComponent(env.elevenLabs.agentId)}`;
+      let url: string;
+      try {
+        url = await this.resolveConversationUrl();
+      } catch (signedErr) {
+        logger.warn('voice', 'Falling back to direct agent_id WebSocket URL', signedErr);
+        url = `wss://api.elevenlabs.io/v1/convai/conversation?agent_id=${encodeURIComponent(env.elevenLabs.agentId)}`;
+      }
+
+      logger.info('voice', 'Opening WebSocket', { urlPrefix: url.slice(0, 48) });
       this.ws = new WebSocket(url);
 
       this.agentMode = true;
       this.conversationReady = false;
+      let openedAt = 0;
 
       this.ws.onopen = async () => {
+        openedAt = Date.now();
         logger.info('voice', 'WebSocket connected — sending initiation');
         this.ws?.send(
           JSON.stringify({
@@ -208,22 +248,49 @@ export class ElevenLabsVoiceService {
         this.handleWebSocketMessage(event.data);
       };
 
-      this.ws.onerror = () => {
-        const msg = 'Voice connection failed. Falling back to demo mode.';
-        logger.error('voice', 'WebSocket error — falling back to mock');
+      this.ws.onerror = (event) => {
+        const detail =
+          typeof event === 'object' && event != null && 'message' in event
+            ? String((event as { message?: unknown }).message ?? '')
+            : '';
+        logger.error('voice', 'WebSocket error', { detail: detail || 'unknown' });
+        const msg = detail
+          ? `Voice connection error: ${detail}`
+          : 'Voice connection failed. Check your agent ID and API key.';
         this.callbacks.onError(msg);
-        void this.startMockSession();
+        this.setState('error');
       };
 
-      this.ws.onclose = () => {
-        logger.warn('voice', 'WebSocket closed');
+      this.ws.onclose = (event) => {
+        const elapsed = openedAt ? Date.now() - openedAt : 0;
+        logger.warn('voice', 'WebSocket closed', {
+          code: event.code,
+          reason: event.reason || '(none)',
+          wasClean: event.wasClean,
+          elapsedMs: elapsed,
+          conversationReady: this.conversationReady,
+        });
+
+        if (this.active && !this.conversationReady && this.agentMode) {
+          const hint =
+            event.reason ||
+            (event.code === 1006
+              ? 'Connection dropped — private agents need a valid API key and agent ID.'
+              : `Connection closed (code ${event.code}).`);
+          this.callbacks.onError(hint);
+          this.setState('error');
+          return;
+        }
+
         if (this.active && this.sessionState !== 'error') {
           this.setState('idle');
         }
       };
     } catch (err) {
       logger.error('voice', 'WebSocket connect failed', err);
-      await this.startMockSession();
+      const msg = humanizeError(err, 'Failed to connect to voice agent');
+      this.callbacks.onError(msg);
+      this.setState('error');
     }
   }
 
@@ -269,15 +336,30 @@ export class ElevenLabsVoiceService {
 
       if (type === 'conversation_initiation_metadata') {
         this.conversationReady = true;
-        logger.info('voice', 'Agent conversation ready');
+        logger.info('voice', 'Agent conversation ready', message.conversation_initiation_metadata_event);
         return;
       }
 
       if (type === 'ping') {
-        const ping = message.ping_event as { event_id?: number } | undefined;
+        const ping = message.ping_event as { event_id?: number; ping_ms?: number } | undefined;
         if (ping?.event_id != null) {
-          this.ws?.send(JSON.stringify({ type: 'pong', event_id: ping.event_id }));
+          const delay = ping.ping_ms ?? 0;
+          setTimeout(() => {
+            if (this.ws?.readyState === WebSocket.OPEN) {
+              this.ws.send(JSON.stringify({ type: 'pong', event_id: ping.event_id }));
+            }
+          }, delay);
         }
+        return;
+      }
+
+      if (type === 'internal_error' || type === 'error') {
+        const errEvt = (message.internal_error_event ?? message.error_event) as
+          | { message?: string; code?: number }
+          | undefined;
+        const errMsg = errEvt?.message ?? 'Unknown agent error';
+        logger.error('voice', 'Agent error event', { type, errMsg, code: errEvt?.code });
+        this.callbacks.onError(errMsg);
         return;
       }
 

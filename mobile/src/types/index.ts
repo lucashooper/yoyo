@@ -43,10 +43,10 @@ export interface OnboardingData {
 }
 
 export interface OnboardingFlowState {
-  language: SupportedLanguage;
+  language: SupportedLanguage | null;
   name: string;
-  proficiency: ProficiencyLevel;
-  motivation: Motivation;
+  proficiency: ProficiencyLevel | null;
+  motivation: Motivation | null;
 }
 
 export const PLAN_LOADING_CARDS: {

@@ -2,6 +2,7 @@ import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import React from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { GoogleIcon } from './GoogleIcon';
 import { colors } from '../theme/colors';
 import { typography } from '../theme/typography';
 
@@ -31,7 +32,9 @@ export function SocialSignInButtons({ onApple, onGoogle }: SocialSignInButtonsPr
           onGoogle();
         }}
       >
-        <Ionicons name="logo-google" size={20} color="#4285F4" style={styles.icon} />
+        <View style={styles.icon}>
+          <GoogleIcon size={20} />
+        </View>
         <Text style={styles.googleText}>Sign in with Google</Text>
       </Pressable>
     </View>

@@ -56,13 +56,25 @@ function languageLabel(lang: SupportedLanguage): string {
   return LANGUAGE_OPTIONS.find((l) => l.value === lang)?.label ?? lang;
 }
 
+function welcomeGreeting(lang: SupportedLanguage): string {
+  const hello: Record<SupportedLanguage, string> = {
+    spanish: '¡Hola!',
+    french: 'Bonjour !',
+    english: 'Hi!',
+    japanese: 'こんにちは！',
+    german: 'Hallo!',
+    russian: 'Привет!',
+  };
+  return `${hello[lang]} Welcome, I'm Nobi! Let's get started! What's your name?`;
+}
+
 export function OnboardingScreen() {
   const [step, setStep] = useState<Step>('splash');
   const [flow, setFlow] = useState<OnboardingFlowState>({
-    language: 'spanish',
+    language: null,
     name: '',
-    proficiency: 'beginner',
-    motivation: 'daily',
+    proficiency: null,
+    motivation: null,
   });
   const [agentText, setAgentText] = useState('');
   const [isListening, setIsListening] = useState(false);
@@ -77,7 +89,7 @@ export function OnboardingScreen() {
   }, []);
 
   const playLine = useCallback(
-    (text: string, lang: SupportedLanguage = flow.language) => {
+    (text: string, lang: SupportedLanguage = flow.language ?? 'english') => {
       stopAgentSpeech();
       setAgentText(text);
       speechRef.current = speakAgentLine(text, lang, 1, undefined, undefined);
@@ -86,11 +98,10 @@ export function OnboardingScreen() {
   );
 
   useEffect(() => {
+    if (!flow.language) return;
+
     if (step === 'dialogue_name') {
-      playLine(
-        `¡Hola! Welcome, I'm Nobi! Let's get started! What's your name?`,
-        flow.language,
-      );
+      playLine(welcomeGreeting(flow.language), flow.language);
     } else if (step === 'dialogue_proficiency' && flow.name) {
       playLine(
         `Nice to meet you, ${flow.name}! How much ${languageLabel(flow.language)} do you know?`,
@@ -132,6 +143,8 @@ export function OnboardingScreen() {
     void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     stopAgentSpeech();
 
+    if (!flow.language || !flow.proficiency || !flow.motivation) return;
+
     const firstScenario = {
       ...DEFAULT_SCENARIOS[FIRST_LESSON.scenarioIndex]!,
       id: 'lesson_0',
@@ -159,6 +172,7 @@ export function OnboardingScreen() {
   };
 
   const canContinueName = flow.name.trim().length >= 1;
+  const canContinueLanguage = flow.language != null;
 
   const cardShadow = useMemo(
     () => ({
@@ -216,7 +230,7 @@ export function OnboardingScreen() {
                     <Ionicons name="chevron-back" size={20} color={colors.text} />
                   </Pressable>
                   <View style={styles.langHeader}>
-                    <NobiAvatar state="idle" size={56} softAura />
+                    <NobiAvatar state="idle" size={80} softAura />
                     <Text style={styles.langTitle}>Which language do you want to learn?</Text>
                   </View>
                   <View style={styles.langList}>
@@ -241,7 +255,12 @@ export function OnboardingScreen() {
                     })}
                   </View>
                   <Pressable
-                    style={[styles.primaryPill, cardShadow]}
+                    style={[
+                      styles.primaryPill,
+                      !canContinueLanguage && styles.disabled,
+                      cardShadow,
+                    ]}
+                    disabled={!canContinueLanguage}
                     onPress={() => go('dialogue_name')}
                   >
                     <Text style={styles.primaryPillText}>Continue</Text>
@@ -373,7 +392,7 @@ export function OnboardingScreen() {
                     style={[styles.planCard, cardShadow]}
                   >
                     <Text style={styles.planCardTitle}>
-                      Your {languageLabel(flow.language)} starting point
+                      Your {languageLabel(flow.language ?? 'english')} starting point
                     </Text>
                     <Text style={styles.planCardBody}>
                       {PLAN_LOADING_CARDS[loadingCardIdx]?.body}
@@ -408,11 +427,8 @@ export function OnboardingScreen() {
                   />
 
                   <Pressable style={styles.guestLink} onPress={() => void complete(true)}>
-                    <Text style={styles.guestText}>Continue as guest — free plan</Text>
+                    <Text style={styles.guestText}>Continue as guest</Text>
                   </Pressable>
-                  <Text style={styles.freeNote}>
-                    Guest includes {5} free voice sessions with full features.
-                  </Text>
                 </Animated.View>
               )}
             </Animated.View>
@@ -474,8 +490,9 @@ const styles = StyleSheet.create({
   },
   langHeader: {
     alignItems: 'center',
-    gap: 20,
+    gap: 24,
     marginBottom: 28,
+    paddingTop: 8,
   },
   langTitle: {
     ...typography.display,
@@ -508,14 +525,19 @@ const styles = StyleSheet.create({
   primaryPill: {
     backgroundColor: colors.primary,
     borderRadius: 28,
+    minHeight: 56,
     paddingVertical: 18,
+    paddingHorizontal: 32,
     alignItems: 'center',
+    justifyContent: 'center',
+    width: '100%',
     marginTop: 8,
   },
   primaryPillText: {
     ...typography.label,
     color: '#fff',
     fontSize: 17,
+    fontWeight: '600',
   },
   disabled: { opacity: 0.45 },
   dialogue: {
@@ -606,8 +628,9 @@ const styles = StyleSheet.create({
     flexGrow: 1,
     minHeight: 520,
     alignItems: 'center',
-    paddingTop: 24,
-    gap: 20,
+    paddingTop: 32,
+    gap: 24,
+    width: '100%',
   },
   planCard: {
     backgroundColor: colors.surface,
@@ -685,10 +708,5 @@ const styles = StyleSheet.create({
     ...typography.label,
     color: colors.primary,
     fontSize: 15,
-  },
-  freeNote: {
-    ...typography.caption,
-    color: colors.textMuted,
-    textAlign: 'center',
   },
 });
