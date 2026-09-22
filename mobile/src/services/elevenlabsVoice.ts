@@ -106,6 +106,7 @@ export class ElevenLabsVoiceService {
   private lastInterruptId = 0;
   private audioQueue: ArrayBuffer[] = [];
   private processingAudioQueue = false;
+  private playbackFinish: (() => void) | null = null;
   private agentMode = false;
   private agentOutputSampleRate = 16000;
   private agentOutputIsPcm = true;
@@ -525,8 +526,16 @@ export class ElevenLabsVoiceService {
     if (!this.processingAudioQueue) void this.processAgentAudioQueue();
   }
 
+  private resolvePlaybackWaiter(): void {
+    if (this.playbackFinish) {
+      this.playbackFinish();
+      this.playbackFinish = null;
+    }
+  }
+
   private clearAudioQueue(): void {
     this.audioQueue = [];
+    this.resolvePlaybackWaiter();
     if (this.player) {
       try {
         this.player.pause();
@@ -952,36 +961,53 @@ export class ElevenLabsVoiceService {
       this.player.play();
 
       await new Promise<void>((resolve, reject) => {
+        let subscription: { remove: () => void } | null = null;
+
+        const finish = () => {
+          clearTimeout(timeout);
+          subscription?.remove();
+          this.playbackFinish = null;
+          resolve();
+        };
+
+        this.playbackFinish = finish;
+
         const timeout = setTimeout(() => {
-          subscription.remove();
+          subscription?.remove();
+          this.playbackFinish = null;
+          if (!this.active) {
+            resolve();
+            return;
+          }
           reject(new Error('Playback timed out'));
         }, 30000);
 
-        const subscription = this.player!.addListener(
-          'playbackStatusUpdate',
-          (status: AudioStatus) => {
-            if (!status.isLoaded) {
-              if (status.error) {
-                clearTimeout(timeout);
-                subscription.remove();
-                reject(new Error(status.error));
-              }
-              return;
-            }
+        subscription = this.player!.addListener('playbackStatusUpdate', (status: AudioStatus) => {
+          if (!this.active) {
+            finish();
+            return;
+          }
 
-            if (status.playing) {
-              const duration = status.duration || 1;
-              const progress = Math.min(1, status.currentTime / duration);
-              this.callbacks.onPlaybackProgress?.(progress);
-            }
-
-            if (status.didJustFinish) {
+          if (!status.isLoaded) {
+            if (status.error) {
               clearTimeout(timeout);
-              subscription.remove();
-              resolve();
+              subscription?.remove();
+              this.playbackFinish = null;
+              reject(new Error(status.error));
             }
-          },
-        );
+            return;
+          }
+
+          if (status.playing) {
+            const duration = status.duration || 1;
+            const progress = Math.min(1, status.currentTime / duration);
+            this.callbacks.onPlaybackProgress?.(progress);
+          }
+
+          if (status.didJustFinish) {
+            finish();
+          }
+        });
       });
 
       logger.info('voice', 'Playback complete');
@@ -1007,6 +1033,7 @@ export class ElevenLabsVoiceService {
 
   async stop(): Promise<void> {
     this.active = false;
+    this.resolvePlaybackWaiter();
     logger.info('voice', 'Stopping voice session');
 
     if (this.vadTimer) clearTimeout(this.vadTimer);

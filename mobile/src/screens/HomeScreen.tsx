@@ -4,9 +4,9 @@ import React, { useCallback, useMemo, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import Animated, { LinearTransition } from 'react-native-reanimated';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { CurvedBackdrop } from '../components/CurvedBackdrop';
 import { LanguageLearningOverlay } from '../components/LanguageLearningOverlay';
 import { LearningPathSheet } from '../components/LearningPathSheet';
-import { MascotGlow } from '../components/MascotGlow';
 import { NobiAvatar } from '../components/NobiAvatar';
 import { PrimaryButton } from '../components/PrimaryButton';
 import { StreakPill } from '../components/StreakPill';
@@ -28,6 +28,9 @@ import {
   type ProficiencyLevel,
   type Scenario,
 } from '../types';
+
+const HERO_MASCOT_SIZE = 180;
+const WAVE_HEIGHT = 120;
 
 function levelShort(proficiency: ProficiencyLevel): string {
   if (proficiency === 'beginner') return 'L1';
@@ -113,6 +116,9 @@ export function HomeScreen() {
 
   return (
     <View style={styles.root}>
+      <CurvedBackdrop variant="top" height={WAVE_HEIGHT} fill="#F9FAFC" />
+      <CurvedBackdrop variant="bottom" height={WAVE_HEIGHT} fill="#F9FAFC" />
+
       <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
         <View style={styles.topBar}>
           <Pressable style={styles.chip} onPress={() => setLangOpen(true)}>
@@ -130,13 +136,14 @@ export function HomeScreen() {
 
         <View style={styles.center}>
           <Animated.View layout={LinearTransition.duration(250)} style={styles.focusCard}>
-            <MascotGlow size={120} active={false}>
-              <NobiAvatar state="idle" size={112} softAura />
-            </MascotGlow>
+            <View style={styles.mascotWrap}>
+              <NobiAvatar state="idle" size={HERO_MASCOT_SIZE} softAura />
+            </View>
             <Text style={styles.lessonSubtitle}>{FIRST_LESSON.subtitle}</Text>
             <Text style={styles.lessonTitle}>{activeLesson?.title ?? FIRST_LESSON.title}</Text>
             <PrimaryButton
               title="Start"
+              size="hero"
               onPress={() => activeLesson && void startLesson(activeLesson)}
               style={styles.startBtn}
             />
@@ -150,10 +157,12 @@ export function HomeScreen() {
           </Animated.View>
         </View>
 
-        <Pressable style={styles.planHandle} onPress={() => setPlanOpen(true)}>
-          <View style={styles.planGrabber} />
-          <Text style={styles.planHandleText}>My plan</Text>
-        </Pressable>
+        <View style={styles.bottomArea}>
+          <Pressable style={styles.planHandle} onPress={() => setPlanOpen(true)}>
+            <Text style={styles.planChevron}>▴</Text>
+            <Text style={styles.planHandleText}>My plan</Text>
+          </Pressable>
+        </View>
       </SafeAreaView>
 
       <LanguageLearningOverlay
@@ -178,7 +187,7 @@ export function HomeScreen() {
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.backgroundWarm },
-  safe: { flex: 1 },
+  safe: { flex: 1, zIndex: 1 },
   loading: { flex: 1, backgroundColor: colors.backgroundWarm },
   topBar: {
     flexDirection: 'row',
@@ -232,26 +241,31 @@ const styles = StyleSheet.create({
     width: '100%',
     gap: 4,
   },
+  mascotWrap: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 4,
+  },
   lessonSubtitle: {
     ...typography.caption,
     color: colors.textMuted,
-    marginTop: 16,
+    marginTop: 12,
   },
   lessonTitle: {
     ...typography.hero,
     color: colors.text,
     textAlign: 'center',
     lineHeight: 44,
-    marginBottom: 8,
+    marginBottom: 12,
   },
   startBtn: {
-    marginTop: 8,
-    minWidth: 200,
+    marginTop: 4,
+    minWidth: 220,
   },
   dots: {
     flexDirection: 'row',
     gap: 8,
-    marginTop: 20,
+    marginTop: 24,
     alignItems: 'center',
   },
   dot: {
@@ -266,22 +280,19 @@ const styles = StyleSheet.create({
     borderRadius: 4,
     backgroundColor: colors.primary,
   },
+  bottomArea: {
+    paddingBottom: 4,
+  },
   planHandle: {
     alignItems: 'center',
-    paddingTop: 8,
-    paddingBottom: 12,
-    backgroundColor: colors.surface,
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
-    borderTopWidth: 1,
-    borderColor: colors.border,
+    paddingTop: 12,
+    paddingBottom: 10,
+    backgroundColor: 'transparent',
   },
-  planGrabber: {
-    width: 36,
-    height: 4,
-    borderRadius: 2,
-    backgroundColor: colors.border,
-    marginBottom: 6,
+  planChevron: {
+    color: colors.primary,
+    fontSize: 11,
+    marginBottom: 2,
   },
   planHandleText: {
     ...typography.label,

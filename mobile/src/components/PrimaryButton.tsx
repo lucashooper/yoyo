@@ -7,7 +7,7 @@ import { typography } from '../theme/typography';
 interface PrimaryButtonProps extends Omit<PressableProps, 'style'> {
   title: string;
   fullWidth?: boolean;
-  size?: 'md' | 'lg';
+  size?: 'md' | 'lg' | 'hero';
   style?: ViewStyle;
 }
 
@@ -24,6 +24,7 @@ export function PrimaryButton({
     <Pressable
       style={({ pressed }) => [
         styles.base,
+        size === 'hero' && styles.hero,
         size === 'md' && styles.md,
         fullWidth && styles.fullWidth,
         disabled && styles.disabled,
@@ -37,7 +38,15 @@ export function PrimaryButton({
       }}
       {...rest}
     >
-      <Text style={[styles.label, size === 'md' && styles.labelMd]}>{title}</Text>
+      <Text
+        style={[
+          styles.label,
+          size === 'hero' && styles.labelHero,
+          size === 'md' && styles.labelMd,
+        ]}
+      >
+        {title}
+      </Text>
     </Pressable>
   );
 }
@@ -53,6 +62,13 @@ const styles = StyleSheet.create({
     minHeight: 50,
     borderWidth: 1,
     borderColor: 'rgba(0, 0, 0, 0.08)',
+  },
+  hero: {
+    borderRadius: 9999,
+    paddingVertical: 16,
+    paddingHorizontal: 48,
+    minHeight: 54,
+    borderWidth: 0,
   },
   md: {
     paddingVertical: 13,
@@ -76,6 +92,10 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontSize: 17,
     fontWeight: '600',
+  },
+  labelHero: {
+    fontSize: 18,
+    fontWeight: '700',
   },
   labelMd: {
     fontSize: 16,

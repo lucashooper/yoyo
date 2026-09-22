@@ -25,7 +25,7 @@ export const colors = {
   flameCore: '#FF8C42',
   flameDeep: '#E85D04',
   flameInner: '#FFF3D6',
-  blobBody: '#89CFF0',
+  blobBody: '#5CBAD6',
   blobHighlight: '#C5E8F7',
   blobCheek: '#FFB8A8',
   success: '#34C759',
