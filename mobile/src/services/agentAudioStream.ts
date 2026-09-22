@@ -19,29 +19,43 @@ export class AgentAudioStream {
   async start(onChunk: PcmChunkHandler): Promise<void> {
     await this.stop();
 
-    this.stream = new AudioModule.AudioStream({
-      sampleRate: 16000,
-      channels: 1,
-      encoding: 'int16',
-    });
+    try {
+      this.stream = new AudioModule.AudioStream({
+        sampleRate: 16000,
+        channels: 1,
+        encoding: 'int16',
+      });
 
-    this.subscription = this.stream.addListener(
-      STREAM_BUFFER_EVENT,
-      (buffer: AudioStreamBuffer) => {
-        const amplitude = pcmAmplitude(buffer.data);
-        onChunk({
-          base64: arrayBufferToBase64(buffer.data),
-          amplitude,
-          sampleRate: buffer.sampleRate,
-        });
-      },
-    );
+      let chunkCount = 0;
 
-    await this.stream.start();
-    logger.info('agentAudioStream', 'PCM stream started', {
-      sampleRate: this.stream.sampleRate,
-      channels: this.stream.channels,
-    });
+      this.subscription = this.stream.addListener(
+        STREAM_BUFFER_EVENT,
+        (buffer: AudioStreamBuffer) => {
+          chunkCount += 1;
+          const amplitude = pcmAmplitude(buffer.data);
+          if (chunkCount === 1) {
+            logger.info('agentAudioStream', 'First PCM buffer received', {
+              bytes: buffer.data.byteLength,
+              amplitude: Number(amplitude.toFixed(3)),
+            });
+          }
+          onChunk({
+            base64: arrayBufferToBase64(buffer.data),
+            amplitude,
+            sampleRate: buffer.sampleRate,
+          });
+        },
+      );
+
+      await this.stream.start();
+      logger.info('agentAudioStream', 'PCM stream started', {
+        sampleRate: this.stream.sampleRate,
+        channels: this.stream.channels,
+      });
+    } catch (err) {
+      logger.error('agentAudioStream', 'Failed to start PCM stream — check mic permission', err);
+      throw err;
+    }
   }
 
   async stop(): Promise<void> {

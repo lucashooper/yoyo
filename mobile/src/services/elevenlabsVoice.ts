@@ -234,7 +234,7 @@ export class ElevenLabsVoiceService {
         openedAt = Date.now();
         const initiation = buildAgentInitiationPayload(this.language, this.scenarioPrompt);
         logger.info('voice', 'WebSocket connected — sending initiation', {
-          dynamicVariables: Object.keys(initiation.dynamic_variables),
+          dynamicVariables: initiation.dynamic_variables,
         });
         this.ws?.send(JSON.stringify(initiation));
         this.setState('connecting');
@@ -259,20 +259,28 @@ export class ElevenLabsVoiceService {
 
       this.ws.onclose = (event) => {
         const elapsed = openedAt ? Date.now() - openedAt : 0;
+        const reason = event.reason?.trim() ?? '';
+        const isErrorClose = event.code !== 1000 && event.code !== 1001;
+
         logger.warn('voice', 'WebSocket closed', {
           code: event.code,
-          reason: event.reason || '(none)',
+          reason: reason || '(none)',
           wasClean: event.wasClean,
           elapsedMs: elapsed,
           conversationReady: this.conversationReady,
         });
 
-        if (this.active && !this.conversationReady && this.agentMode) {
+        this.conversationReady = false;
+        void this.agentStream?.stop();
+        this.agentStream = null;
+
+        if (this.active && this.agentMode && isErrorClose) {
           const hint =
-            event.reason ||
+            reason ||
             (event.code === 1006
-              ? 'Connection dropped — private agents need a valid API key and agent ID.'
+              ? 'Connection dropped — check agent ID, API key, and dynamic variables.'
               : `Connection closed (code ${event.code}).`);
+          logger.error('voice', 'Agent session ended unexpectedly', { hint });
           this.callbacks.onError(hint);
           this.setState('error');
           return;
@@ -415,8 +423,25 @@ export class ElevenLabsVoiceService {
       if (type === 'agent_response_correction') {
         this.setState('listening');
       }
-    } catch {
-      // non-JSON
+
+      if (
+        type &&
+        type !== 'agent_response_correction' &&
+        ![
+          'conversation_initiation_metadata',
+          'ping',
+          'internal_error',
+          'error',
+          'user_transcript',
+          'agent_response',
+          'audio',
+          'interruption',
+        ].includes(type)
+      ) {
+        logger.debug('voice', 'Unhandled WebSocket message', { type, keys: Object.keys(message) });
+      }
+    } catch (err) {
+      logger.debug('voice', 'Non-JSON WebSocket payload', err);
     }
   }
 
@@ -452,12 +477,49 @@ export class ElevenLabsVoiceService {
   }
 
   private async startAgentStream(): Promise<void> {
+    if (this.ws?.readyState !== WebSocket.OPEN) {
+      logger.warn('voice', 'Skipping mic stream — WebSocket not open', {
+        readyState: this.ws?.readyState,
+      });
+      return;
+    }
+
+    if (!this.conversationReady) {
+      logger.warn('voice', 'Skipping mic stream — conversation not ready');
+      return;
+    }
+
+    logger.info('voice', 'Starting mic PCM stream');
     this.agentStream = new AgentAudioStream();
+
+    let chunksSent = 0;
+    let lastAmplitudeLog = 0;
+    let peakAmplitude = 0;
+
     await this.agentStream.start(({ base64, amplitude }) => {
       if (!this.active || this.isPlayingAudio || !this.conversationReady) return;
-      if (this.ws?.readyState !== WebSocket.OPEN) return;
+      if (this.ws?.readyState !== WebSocket.OPEN) {
+        if (chunksSent > 0 && Date.now() - lastAmplitudeLog > 3000) {
+          logger.warn('voice', 'Mic active but WebSocket closed — cannot send audio');
+          lastAmplitudeLog = Date.now();
+        }
+        return;
+      }
 
+      peakAmplitude = Math.max(peakAmplitude, amplitude);
       this.callbacks.onAmplitude(amplitude);
+
+      const now = Date.now();
+      if (now - lastAmplitudeLog > 2000) {
+        logger.debug('voice', 'Mic level', {
+          amplitude: Number(amplitude.toFixed(3)),
+          peak: Number(peakAmplitude.toFixed(3)),
+          chunksSent,
+          state: this.sessionState,
+        });
+        lastAmplitudeLog = now;
+        peakAmplitude = 0;
+      }
 
       if (amplitude >= VAD_SPEECH_THRESHOLD) {
         if (this.speechStartedAt == null) this.speechStartedAt = Date.now();
@@ -474,6 +536,10 @@ export class ElevenLabsVoiceService {
 
       try {
         this.ws.send(JSON.stringify({ user_audio_chunk: base64 }));
+        chunksSent += 1;
+        if (chunksSent === 1) {
+          logger.info('voice', 'First audio chunk sent to agent');
+        }
       } catch (err) {
         logger.warn('voice', 'Failed to send audio chunk', err);
       }
