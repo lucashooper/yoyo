@@ -15,6 +15,7 @@ import { detectCorrection } from './corrections';
 import { humanizeError, logger } from './logger';
 import { env } from '../config/env';
 import { AgentAudioStream } from './agentAudioStream';
+import { buildAgentInitiationPayload } from './agentDynamicVariables';
 import { getVoiceForLanguage } from './voiceService';
 
 export const isElevenLabsAgentConfigured = env.elevenLabs.isAgentMode;
@@ -93,6 +94,7 @@ export class ElevenLabsVoiceService {
   private sessionState: VoiceSessionState = 'idle';
   private agentStream: AgentAudioStream | null = null;
   private conversationReady = false;
+  private agentStreamPending = false;
   private lastInterruptId = 0;
   private audioQueue: ArrayBuffer[] = [];
   private processingAudioQueue = false;
@@ -228,20 +230,14 @@ export class ElevenLabsVoiceService {
       this.conversationReady = false;
       let openedAt = 0;
 
-      this.ws.onopen = async () => {
+      this.ws.onopen = () => {
         openedAt = Date.now();
-        logger.info('voice', 'WebSocket connected — sending initiation');
-        this.ws?.send(
-          JSON.stringify({
-            type: 'conversation_initiation_client_data',
-            dynamic_variables: {
-              language: this.language,
-              scenario: this.scenarioPrompt,
-            },
-          }),
-        );
-        this.setState('listening');
-        await this.startAgentStream();
+        const initiation = buildAgentInitiationPayload(this.language, this.scenarioPrompt);
+        logger.info('voice', 'WebSocket connected — sending initiation', {
+          dynamicVariables: Object.keys(initiation.dynamic_variables),
+        });
+        this.ws?.send(JSON.stringify(initiation));
+        this.setState('connecting');
       };
 
       this.ws.onmessage = (event) => {
@@ -337,6 +333,13 @@ export class ElevenLabsVoiceService {
       if (type === 'conversation_initiation_metadata') {
         this.conversationReady = true;
         logger.info('voice', 'Agent conversation ready', message.conversation_initiation_metadata_event);
+        this.setState('listening');
+        if (!this.agentStream && !this.agentStreamPending) {
+          this.agentStreamPending = true;
+          void this.startAgentStream().finally(() => {
+            this.agentStreamPending = false;
+          });
+        }
         return;
       }
 
@@ -876,6 +879,7 @@ export class ElevenLabsVoiceService {
     this.agentStream = null;
     this.agentMode = false;
     this.conversationReady = false;
+    this.agentStreamPending = false;
     this.clearAudioQueue();
 
     this.isPlayingAudio = false;
