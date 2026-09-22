@@ -45,28 +45,28 @@ export function PrimaryButton({
 const styles = StyleSheet.create({
   base: {
     backgroundColor: colors.primary,
-    borderRadius: 16,
-    borderBottomWidth: 4,
-    borderBottomColor: colors.primaryDark,
-    paddingVertical: 16,
+    borderRadius: 14,
+    paddingVertical: 15,
     paddingHorizontal: 40,
     alignItems: 'center',
     justifyContent: 'center',
-    minHeight: 52,
+    minHeight: 50,
+    borderWidth: 1,
+    borderColor: 'rgba(0, 0, 0, 0.08)',
   },
   md: {
-    paddingVertical: 14,
+    paddingVertical: 13,
     paddingHorizontal: 28,
-    minHeight: 48,
-    borderRadius: 14,
+    minHeight: 46,
+    borderRadius: 12,
   },
   fullWidth: {
     width: '100%',
     paddingHorizontal: 24,
   },
   pressed: {
-    transform: [{ translateY: 2 }],
-    borderBottomWidth: 2,
+    opacity: 0.88,
+    transform: [{ scale: 0.985 }],
   },
   disabled: {
     opacity: 0.45,
@@ -75,7 +75,7 @@ const styles = StyleSheet.create({
     ...typography.label,
     color: '#FFFFFF',
     fontSize: 17,
-    fontWeight: '700',
+    fontWeight: '600',
   },
   labelMd: {
     fontSize: 16,

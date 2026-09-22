@@ -130,8 +130,8 @@ export function HomeScreen() {
 
         <View style={styles.center}>
           <Animated.View layout={LinearTransition.duration(250)} style={styles.focusCard}>
-            <MascotGlow size={150}>
-              <NobiAvatar state="idle" size={130} softAura />
+            <MascotGlow size={120} active={false}>
+              <NobiAvatar state="idle" size={112} softAura />
             </MascotGlow>
             <Text style={styles.lessonSubtitle}>{FIRST_LESSON.subtitle}</Text>
             <Text style={styles.lessonTitle}>{activeLesson?.title ?? FIRST_LESSON.title}</Text>
@@ -193,17 +193,12 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    backgroundColor: colors.chipBg,
+    backgroundColor: colors.surface,
     paddingHorizontal: 12,
     paddingVertical: 8,
     borderRadius: 20,
     borderWidth: 1,
-    borderColor: colors.border,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 4,
-    elevation: 2,
+    borderColor: 'rgba(0, 0, 0, 0.06)',
   },
   chipFlag: { fontSize: 16 },
   chipText: {

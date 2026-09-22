@@ -238,8 +238,8 @@ export function OnboardingScreen() {
                     <Ionicons name="chevron-back" size={20} color={colors.text} />
                   </Pressable>
                   <View style={styles.langHeader}>
-                    <MascotGlow size={100}>
-                      <NobiAvatar state="idle" size={88} softAura />
+                    <MascotGlow size={120} active={false}>
+                      <NobiAvatar state="idle" size={112} softAura />
                     </MascotGlow>
                     <Text style={styles.langTitle}>Which language do you want to learn?</Text>
                   </View>
@@ -396,8 +396,8 @@ export function OnboardingScreen() {
 
               {step === 'plan_reveal' && (
                 <Animated.View entering={ENTER} style={styles.planReveal}>
-                  <MascotGlow size={100}>
-                    <NobiAvatar state="idle" size={88} softAura />
+                  <MascotGlow size={120} active={false}>
+                    <NobiAvatar state="idle" size={112} softAura />
                   </MascotGlow>
                   <ScrollView
                     horizontal
@@ -534,12 +534,7 @@ const styles = StyleSheet.create({
     paddingVertical: 16,
     paddingHorizontal: 20,
     borderWidth: 1,
-    borderColor: colors.border,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 8,
-    elevation: 2,
+    borderColor: 'rgba(0, 0, 0, 0.06)',
   },
   langPillActive: {
     borderWidth: 2,
@@ -554,9 +549,9 @@ const styles = StyleSheet.create({
   langPillTextActive: { color: colors.primaryDark },
   primaryPill: {
     backgroundColor: colors.primary,
-    borderRadius: 16,
-    borderBottomWidth: 4,
-    borderBottomColor: colors.primaryDark,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: 'rgba(0, 0, 0, 0.08)',
     minHeight: 56,
     paddingVertical: 18,
     paddingHorizontal: 32,
@@ -672,13 +667,11 @@ const styles = StyleSheet.create({
   },
   planCard: {
     backgroundColor: colors.surface,
-    borderRadius: 20,
+    borderRadius: 16,
     padding: 24,
     alignItems: 'center',
     borderWidth: 1,
-    borderColor: colors.border,
-    borderBottomWidth: 4,
-    borderBottomColor: colors.border,
+    borderColor: 'rgba(0, 0, 0, 0.06)',
   },
   planCardIconWrap: {
     width: 64,

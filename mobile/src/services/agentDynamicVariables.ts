@@ -13,39 +13,51 @@ function languageLabel(lang: SupportedLanguage): string {
   return LANGUAGE_OPTIONS.find((l) => l.value === lang)?.label ?? lang;
 }
 
+/** Which ElevenLabs Security overrides the agent allows */
+export type InitiationOverrideMode = 'language-and-voice' | 'language-only' | 'none';
+
 export interface AgentInitiationPayload {
   type: 'conversation_initiation_client_data';
   dynamic_variables: Record<string, string>;
-  conversation_config_override: {
-    agent: { language: string };
-    tts: { voice_id: string };
+  conversation_config_override?: {
+    agent?: { language: string };
+    tts?: { voice_id: string };
   };
 }
 
 /**
  * Build conversation_initiation_client_data for ElevenLabs ConvAI.
- * Requires agent Security → allow language + voice overrides in dashboard.
+ * Default `language-only` — voice_id override requires Agent → Security permission.
  */
 export function buildAgentInitiationPayload(
   language: SupportedLanguage,
   scenarioPrompt: string,
   voiceId: string,
+  overrideMode: InitiationOverrideMode = 'language-only',
 ): AgentInitiationPayload {
   const label = languageLabel(language);
 
-  return {
+  const payload: AgentInitiationPayload = {
     type: 'conversation_initiation_client_data',
     dynamic_variables: {
       language: label,
       scenario: scenarioPrompt,
     },
-    conversation_config_override: {
-      agent: {
-        language: LANGUAGE_ISO[language],
-      },
-      tts: {
-        voice_id: voiceId,
-      },
-    },
   };
+
+  if (overrideMode === 'none') return payload;
+
+  payload.conversation_config_override = {};
+
+  if (overrideMode === 'language-only' || overrideMode === 'language-and-voice') {
+    payload.conversation_config_override.agent = {
+      language: LANGUAGE_ISO[language],
+    };
+  }
+
+  if (overrideMode === 'language-and-voice') {
+    payload.conversation_config_override.tts = { voice_id: voiceId };
+  }
+
+  return payload;
 }

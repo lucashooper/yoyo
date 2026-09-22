@@ -191,8 +191,16 @@ function VoiceSessionInner({
         )}
 
         <View style={styles.center}>
-          <MascotGlow size={220}>
-            <NobiAvatar state={state} amplitude={amplitude} size={180} softAura />
+          <MascotGlow
+            size={168}
+            active={
+              state === 'listening' ||
+              state === 'user_speaking' ||
+              state === 'speaking'
+            }
+            amplitude={amplitude}
+          >
+            <NobiAvatar state={state} amplitude={amplitude} size={156} softAura />
           </MascotGlow>
           <Text style={styles.statusText}>{statusLabel(state, error)}</Text>
         </View>
@@ -298,9 +306,9 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: colors.chipBg,
+    backgroundColor: colors.surface,
     borderWidth: 1,
-    borderColor: colors.border,
+    borderColor: 'rgba(0, 0, 0, 0.06)',
   },
   menuIcon: {
     ...typography.label,
@@ -325,17 +333,12 @@ const styles = StyleSheet.create({
     top: 56,
     left: 16,
     backgroundColor: colors.surface,
-    borderRadius: 16,
+    borderRadius: 14,
     paddingVertical: 8,
     minWidth: 180,
     zIndex: 20,
-    shadowColor: colors.shadow,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.1,
-    shadowRadius: 12,
-    elevation: 6,
     borderWidth: 1,
-    borderColor: colors.border,
+    borderColor: 'rgba(0, 0, 0, 0.08)',
   },
   menuItem: {
     paddingVertical: 12,
@@ -363,9 +366,9 @@ const styles = StyleSheet.create({
   waveWrap: {
     backgroundColor: colors.surface,
     marginHorizontal: 16,
-    borderRadius: 20,
+    borderRadius: 16,
     borderWidth: 1,
-    borderColor: colors.border,
+    borderColor: 'rgba(0, 0, 0, 0.06)',
     marginBottom: 8,
   },
 });

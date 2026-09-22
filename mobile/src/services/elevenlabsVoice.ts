@@ -20,7 +20,10 @@ import { detectCorrection } from './corrections';
 import { humanizeError, logger } from './logger';
 import { env } from '../config/env';
 import { AgentAudioStream } from './agentAudioStream';
-import { buildAgentInitiationPayload } from './agentDynamicVariables';
+import {
+  buildAgentInitiationPayload,
+  type InitiationOverrideMode,
+} from './agentDynamicVariables';
 import { getVoiceForLanguage } from './voiceService';
 
 export const isElevenLabsAgentConfigured = env.elevenLabs.isAgentMode;
@@ -106,6 +109,9 @@ export class ElevenLabsVoiceService {
   private agentMode = false;
   private agentOutputSampleRate = 16000;
   private agentOutputIsPcm = true;
+  private initiationOverrideMode: import('./agentDynamicVariables').InitiationOverrideMode =
+    'language-only';
+  private initiationRetried = false;
 
   constructor(
     language: SupportedLanguage,
@@ -220,18 +226,25 @@ export class ElevenLabsVoiceService {
     return data.signed_url;
   }
 
-  private async sendAgentInitiation(): Promise<void> {
+  private async sendAgentInitiation(
+    overrideMode: InitiationOverrideMode = this.initiationOverrideMode,
+  ): Promise<void> {
     try {
       const voice = await getVoiceForLanguage(this.language);
       const initiation = buildAgentInitiationPayload(
         this.language,
         this.scenarioPrompt,
         voice.voiceId,
+        overrideMode,
       );
       logger.info('voice', 'WebSocket connected — sending initiation', {
         dynamicVariables: initiation.dynamic_variables,
-        agentLanguage: initiation.conversation_config_override.agent.language,
-        voiceId: `${voice.voiceId.slice(0, 8)}…`,
+        overrideMode,
+        agentLanguage: initiation.conversation_config_override?.agent?.language,
+        voiceId:
+          overrideMode === 'language-and-voice'
+            ? `${voice.voiceId.slice(0, 8)}…`
+            : '(dashboard default)',
         voiceName: voice.name,
       });
       if (this.ws?.readyState !== WebSocket.OPEN) {
@@ -244,6 +257,19 @@ export class ElevenLabsVoiceService {
       this.callbacks.onError('Failed to configure voice for this language.');
       this.setState('error');
     }
+  }
+
+  private downgradeInitiationOverride(reason: string): InitiationOverrideMode | null {
+    if (reason.includes('voice_id') && this.initiationOverrideMode === 'language-and-voice') {
+      return 'language-only';
+    }
+    if (
+      (reason.includes('language') || reason.includes('voice_id')) &&
+      this.initiationOverrideMode !== 'none'
+    ) {
+      return 'none';
+    }
+    return null;
   }
 
   private async connectWebSocket(): Promise<void> {
@@ -304,6 +330,16 @@ export class ElevenLabsVoiceService {
         this.agentStream = null;
 
         if (this.active && this.agentMode && isErrorClose) {
+          const downgrade = !this.initiationRetried ? this.downgradeInitiationOverride(reason) : null;
+          if (downgrade != null) {
+            this.initiationRetried = true;
+            this.initiationOverrideMode = downgrade;
+            this.ws = null;
+            logger.warn('voice', 'Retrying with reduced overrides', { mode: downgrade, reason });
+            void this.connectWebSocket();
+            return;
+          }
+
           const hint =
             reason ||
             (event.code === 1006
@@ -1007,6 +1043,8 @@ export class ElevenLabsVoiceService {
     this.agentMode = false;
     this.conversationReady = false;
     this.agentStreamPending = false;
+    this.initiationRetried = false;
+    this.initiationOverrideMode = 'language-only';
     this.clearAudioQueue();
 
     this.isPlayingAudio = false;
