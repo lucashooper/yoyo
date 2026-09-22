@@ -20,12 +20,13 @@ import type { TranscriptEntry } from '../types';
 
 interface TranscriptDrawerProps {
   entries: TranscriptEntry[];
+  minimal?: boolean;
 }
 
 const COLLAPSED = 44;
 const EXPANDED = 300;
 
-export function TranscriptDrawer({ entries }: TranscriptDrawerProps) {
+export function TranscriptDrawer({ entries, minimal = false }: TranscriptDrawerProps) {
   const [expanded, setExpanded] = useState(false);
   const [showTranslation, setShowTranslation] = useState(false);
   const height = useSharedValue(COLLAPSED);
@@ -55,9 +56,16 @@ export function TranscriptDrawer({ entries }: TranscriptDrawerProps) {
 
   return (
     <GestureDetector gesture={pan}>
-      <Animated.View style={[styles.drawer, drawerStyle]}>
+      <Animated.View style={[styles.drawer, minimal && styles.drawerMinimal, drawerStyle]}>
         <Pressable style={styles.handle} onPress={() => toggle(!expanded)}>
-          <Text style={styles.handleText}>^ Swipe up for transcript</Text>
+          {minimal ? (
+            <>
+              <Text style={styles.chevronMinimal}>^</Text>
+              <Text style={styles.handleMinimal}>Transcript</Text>
+            </>
+          ) : (
+            <Text style={styles.handleText}>^ Swipe up for transcript</Text>
+          )}
         </Pressable>
 
         {expanded && (
@@ -112,10 +120,29 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.border,
   },
+  drawerMinimal: {
+    marginHorizontal: 0,
+    backgroundColor: colors.canvas,
+    borderWidth: 0,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: colors.border,
+    borderTopLeftRadius: 0,
+    borderTopRightRadius: 0,
+  },
   handle: {
     alignItems: 'center',
     paddingTop: 12,
     paddingBottom: 6,
+  },
+  chevronMinimal: {
+    color: colors.pingoBlue,
+    fontSize: 12,
+    lineHeight: 12,
+  },
+  handleMinimal: {
+    ...typography.label,
+    color: colors.pingoBlue,
+    marginTop: 2,
   },
   handleText: {
     ...typography.tiny,

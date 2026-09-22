@@ -13,16 +13,11 @@ import type { GrammarCorrection, SupportedLanguage, TranscriptEntry, VoiceSessio
 import { arrayBufferToBase64, decodeBase64ToArrayBuffer } from './audioEncoding';
 import { detectCorrection } from './corrections';
 import { humanizeError, logger } from './logger';
+import { env } from '../config/env';
 import { getVoiceForLanguage } from './voiceService';
 
-const API_KEY = process.env.EXPO_PUBLIC_ELEVENLABS_API_KEY ?? '';
-const AGENT_ID = process.env.EXPO_PUBLIC_ELEVENLABS_AGENT_ID ?? '';
-
-const hasValidKey = API_KEY.length > 0 && !API_KEY.includes('your_');
-const hasValidAgent = AGENT_ID.length > 0 && !AGENT_ID.includes('your_');
-
-export const isElevenLabsAgentConfigured = hasValidKey && hasValidAgent;
-export const isElevenLabsTtsConfigured = hasValidKey && !hasValidAgent;
+export const isElevenLabsAgentConfigured = env.elevenLabs.isAgentMode;
+export const isElevenLabsTtsConfigured = env.elevenLabs.isTtsMode;
 export const isElevenLabsConfigured = isElevenLabsAgentConfigured;
 
 /** Strict VAD — ignore ambient noise / phantom spikes */
@@ -148,7 +143,11 @@ export class ElevenLabsVoiceService {
       } else if (isElevenLabsTtsConfigured) {
         await this.startTtsSession();
       } else {
-        logger.warn('voice', 'No ElevenLabs credentials — demo mode');
+        logger.warn('voice', 'No ElevenLabs credentials — demo mode', {
+          hasApiKey: env.elevenLabs.hasApiKey,
+          hasAgentId: env.elevenLabs.hasAgentId,
+          hint: 'Add keys to mobile/.env.local and restart Metro with --clear',
+        });
         await this.startMockSession();
       }
     } catch (err) {
@@ -177,7 +176,7 @@ export class ElevenLabsVoiceService {
 
   private async connectWebSocket(): Promise<void> {
     try {
-      const url = `wss://api.elevenlabs.io/v1/convai/conversation?agent_id=${encodeURIComponent(AGENT_ID)}`;
+      const url = `wss://api.elevenlabs.io/v1/convai/conversation?agent_id=${encodeURIComponent(env.elevenLabs.agentId)}`;
       this.ws = new WebSocket(url);
 
       this.ws.onopen = async () => {
@@ -386,7 +385,7 @@ export class ElevenLabsVoiceService {
         {
           method: 'POST',
           headers: {
-            'xi-api-key': API_KEY,
+            'xi-api-key': env.elevenLabs.apiKey,
             'Content-Type': 'application/json',
             Accept: 'audio/mpeg',
           },

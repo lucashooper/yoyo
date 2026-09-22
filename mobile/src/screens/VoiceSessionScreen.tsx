@@ -1,36 +1,40 @@
 import * as Haptics from 'expo-haptics';
-import { LinearGradient } from 'expo-linear-gradient';
 import { router } from 'expo-router';
 import React, { useCallback, useEffect, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
+import Animated, { FadeInUp, LinearTransition } from 'react-native-reanimated';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { AudioWaveBar } from '../components/AudioWaveBar';
 import { ConnectionBanner, ErrorToast } from '../components/ErrorToast';
 import { ErrorBoundary } from '../components/ErrorBoundary';
 import { GrammarCorrectionCard } from '../components/GrammarCorrectionCard';
 import { HelpModal } from '../components/HelpModal';
-import { NobiAvatar } from '../components/NobiAvatar';
 import { TranscriptDrawer } from '../components/TranscriptDrawer';
+import { WaveLogo } from '../components/WaveLogo';
 import { useVoiceSession } from '../hooks/useVoiceSession';
 import { logger } from '../services/logger';
 import { logSession, signInAnonymously } from '../services/supabase';
-import { getOnboarding, updateStreakAfterSession } from '../services/storage';
+import {
+  consumeFreeSession,
+  getFreeSessionsRemaining,
+  getOnboarding,
+  updateStreakAfterSession,
+} from '../services/storage';
 import { colors } from '../theme/colors';
 import { typography } from '../theme/typography';
 import type { OnboardingData } from '../types';
 
 function VoiceSessionInner({ onboarding }: { onboarding: OnboardingData }) {
   const [helpVisible, setHelpVisible] = useState(false);
+  const [menuVisible, setMenuVisible] = useState(false);
   const [sessionId] = useState(() => `session_${Date.now()}`);
   const [toastVisible, setToastVisible] = useState(false);
+  const [isSpeaking, setIsSpeaking] = useState(false);
 
   const {
     state,
-    amplitude,
     transcript,
     correction,
     error,
-    statusText,
     stop,
     reconnect,
     dismissCorrection,
@@ -40,6 +44,10 @@ function VoiceSessionInner({ onboarding }: { onboarding: OnboardingData }) {
     scenarioPrompt: onboarding.scenario.prompt,
     autoStart: true,
   });
+
+  useEffect(() => {
+    setIsSpeaking(state === 'speaking');
+  }, [state]);
 
   useEffect(() => {
     if (error) {
@@ -53,6 +61,7 @@ function VoiceSessionInner({ onboarding }: { onboarding: OnboardingData }) {
     await stop();
 
     try {
+      await consumeFreeSession();
       const { userId } = await signInAnonymously();
       await logSession(
         {
@@ -83,72 +92,60 @@ function VoiceSessionInner({ onboarding }: { onboarding: OnboardingData }) {
     void reconnect();
   }, [dismissError, reconnect]);
 
-  const waveActive =
-    state === 'listening' || state === 'user_speaking' || state === 'speaking';
-  const languageLabel =
-    onboarding.language.charAt(0).toUpperCase() + onboarding.language.slice(1);
-  const scenarioEmoji =
-    onboarding.scenario.icon ??
-    (onboarding.scenario.title.toLowerCase().includes('coffee') ? '☕' : '💬');
-
   return (
     <View style={styles.root}>
-      <LinearGradient
-        colors={[colors.backgroundWarm, colors.background, colors.backgroundDeep]}
-        locations={[0, 0.55, 1]}
-        style={StyleSheet.absoluteFill}
-      />
       <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
-        <View style={styles.container}>
-          <View style={styles.headerOverlay} pointerEvents="box-none">
+        <View style={styles.header}>
+          <Pressable
+            style={styles.iconBtn}
+            onPress={() => setMenuVisible((v) => !v)}
+            hitSlop={16}
+          >
+            <Text style={styles.menuIcon}>⋮⋮</Text>
+          </Pressable>
+
+          <Pressable style={styles.iconBtn} onPress={() => void handleExit()} hitSlop={16}>
+            <Text style={styles.iconText}>✕</Text>
+          </Pressable>
+        </View>
+
+        {menuVisible && (
+          <Animated.View entering={FadeInUp.duration(220)} style={styles.menuSheet}>
             <Pressable
-              style={styles.iconButton}
+              style={styles.menuItem}
               onPress={() => {
-                void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                setMenuVisible(false);
                 setHelpVisible(true);
               }}
-              hitSlop={16}
             >
-              <Text style={styles.iconText}>?</Text>
+              <Text style={styles.menuItemText}>How Nobi works</Text>
             </Pressable>
-
-            <View style={styles.badge}>
-              <Text style={styles.badgeText}>
-                {scenarioEmoji} {onboarding.scenario.title} · {languageLabel}
-              </Text>
-            </View>
-
             <Pressable
-              style={styles.iconButton}
-              onPress={() => void handleExit()}
-              hitSlop={16}
+              style={styles.menuItem}
+              onPress={() => {
+                void getFreeSessionsRemaining().then((n) => {
+                  logger.info('VoiceSession', `${n} free sessions remaining`);
+                });
+                setMenuVisible(false);
+              }}
             >
-              <Text style={styles.iconText}>✕</Text>
+              <Text style={styles.menuItemText}>Free sessions left</Text>
             </Pressable>
-          </View>
+          </Animated.View>
+        )}
 
-          <View style={styles.center}>
-            <NobiAvatar state={state} amplitude={amplitude} size={260} />
-          </View>
+        <Animated.View layout={LinearTransition.springify()} style={styles.center}>
+          <WaveLogo size="lg" animated={isSpeaking || state === 'listening'} />
+        </Animated.View>
 
-          <View style={styles.bottom}>
-            <ConnectionBanner
-              visible={state === 'error'}
-              message={error}
-              onReconnect={handleReconnect}
-            />
-            <GrammarCorrectionCard correction={correction} onDismiss={dismissCorrection} />
-            <AudioWaveBar amplitude={amplitude} active={waveActive} />
-            <Pressable
-              onPress={state === 'error' ? handleReconnect : undefined}
-              disabled={state !== 'error'}
-            >
-              <Text style={[styles.status, state === 'error' && styles.statusError]}>
-                {statusText}
-              </Text>
-            </Pressable>
-            <TranscriptDrawer entries={transcript} />
-          </View>
+        <View style={styles.footer}>
+          <ConnectionBanner
+            visible={state === 'error'}
+            message={error}
+            onReconnect={handleReconnect}
+          />
+          <GrammarCorrectionCard correction={correction} onDismiss={dismissCorrection} />
+          <TranscriptDrawer entries={transcript} minimal />
         </View>
       </SafeAreaView>
 
@@ -198,78 +195,70 @@ export function VoiceSessionScreen() {
 const styles = StyleSheet.create({
   root: {
     flex: 1,
-    backgroundColor: colors.background,
+    backgroundColor: colors.canvas,
   },
-  safe: {
-    flex: 1,
-  },
+  safe: { flex: 1 },
   loading: {
     flex: 1,
-    backgroundColor: colors.background,
+    backgroundColor: colors.canvas,
   },
-  container: {
-    flex: 1,
-  },
-  headerOverlay: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    zIndex: 10,
+  header: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 16,
-    paddingTop: 4,
+    paddingHorizontal: 20,
+    paddingTop: 8,
   },
-  iconButton: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
+  iconBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: colors.surface + 'CC',
-    borderWidth: 1,
-    borderColor: colors.border,
+    backgroundColor: colors.surfaceMuted,
+  },
+  menuIcon: {
+    ...typography.label,
+    color: colors.textMuted,
+    letterSpacing: -2,
+    fontSize: 14,
   },
   iconText: {
     fontSize: 16,
     color: colors.textMuted,
     fontWeight: '500',
-    letterSpacing: 0.2,
   },
-  badge: {
-    paddingHorizontal: 12,
-    paddingVertical: 5,
-    borderRadius: 999,
-    backgroundColor: colors.surface + 'EE',
+  menuSheet: {
+    position: 'absolute',
+    top: 64,
+    left: 20,
+    backgroundColor: colors.surface,
+    borderRadius: 16,
+    paddingVertical: 8,
+    minWidth: 180,
+    zIndex: 20,
+    shadowColor: colors.shadow,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 12,
+    elevation: 6,
     borderWidth: 1,
     borderColor: colors.border,
-    maxWidth: '62%',
   },
-  badgeText: {
-    ...typography.tiny,
-    color: colors.textMuted,
-    letterSpacing: 0.2,
+  menuItem: {
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+  },
+  menuItemText: {
+    ...typography.label,
+    color: colors.text,
   },
   center: {
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  bottom: {
+  footer: {
     paddingBottom: 0,
-  },
-  status: {
-    ...typography.caption,
-    color: colors.textMuted,
-    textAlign: 'center',
-    marginBottom: 4,
-    minHeight: 20,
-    letterSpacing: 0.2,
-  },
-  statusError: {
-    color: colors.error,
-    textDecorationLine: 'underline',
   },
 });

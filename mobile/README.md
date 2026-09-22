@@ -28,7 +28,22 @@ npm install
 cp .env.example .env.local
 ```
 
-Edit `.env.local` with your keys (**never commit this file**):
+Edit **`mobile/.env.local`** with your keys (**never commit this file**). The file must live inside the `mobile/` folder — not the repo root:
+
+```bash
+# from repo root
+cp mobile/.env.example mobile/.env.local
+```
+
+After adding or changing keys, restart Metro with a clean cache:
+
+```bash
+npm run start:tunnel -- --clear
+```
+
+On launch, check the Metro log for `[Nobi:env] Credential diagnostics` — it shows whether keys were loaded (masked).
+
+Example `.env.local`:
 
 ```env
 EXPO_PUBLIC_ELEVENLABS_API_KEY=sk_...

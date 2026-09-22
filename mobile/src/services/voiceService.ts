@@ -1,7 +1,5 @@
+import { env } from '../config/env';
 import type { SupportedLanguage } from '../types';
-
-const API_KEY = process.env.EXPO_PUBLIC_ELEVENLABS_API_KEY ?? '';
-const DEFAULT_VOICE_ID = process.env.EXPO_PUBLIC_ELEVENLABS_VOICE_ID ?? '';
 
 export interface ElevenLabsVoice {
   voice_id: string;
@@ -38,14 +36,14 @@ let cachedVoices: ElevenLabsVoice[] | null = null;
 export async function fetchVoices(): Promise<ElevenLabsVoice[]> {
   if (cachedVoices) return cachedVoices;
 
-  if (!API_KEY || API_KEY.includes('your_')) {
+  if (!env.elevenLabs.hasApiKey) {
     cachedVoices = [];
     return cachedVoices;
   }
 
   try {
     const response = await fetch('https://api.elevenlabs.io/v1/voices', {
-      headers: { 'xi-api-key': API_KEY },
+      headers: { 'xi-api-key': env.elevenLabs.apiKey },
     });
 
     if (!response.ok) {
@@ -88,8 +86,8 @@ export async function getVoiceForLanguage(
   const mascot = MASCOT_VOICES[language];
   if (mascot) return mascot;
 
-  if (DEFAULT_VOICE_ID) {
-    return { voiceId: DEFAULT_VOICE_ID, name: 'Default voice' };
+  if (env.elevenLabs.hasVoiceId) {
+    return { voiceId: env.elevenLabs.voiceId, name: 'Default voice' };
   }
 
   return MASCOT_VOICES.english;

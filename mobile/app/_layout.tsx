@@ -1,10 +1,19 @@
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
+import { useEffect } from 'react';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { StyleSheet } from 'react-native';
 import { ErrorBoundary } from '../src/components/ErrorBoundary';
+import { getEnvDiagnostics } from '../src/config/env';
+import { logger } from '../src/services/logger';
 
 export default function RootLayout() {
+  useEffect(() => {
+    if (__DEV__) {
+      logger.info('env', 'Credential diagnostics', getEnvDiagnostics());
+    }
+  }, []);
+
   return (
     <GestureHandlerRootView style={styles.root}>
       <ErrorBoundary scope="RootLayout" fallbackTitle="App recovered">

@@ -38,8 +38,40 @@ export interface OnboardingData {
   proficiency: ProficiencyLevel;
   motivation: Motivation;
   plan: PlanTier;
+  name?: string;
   completedAt: string;
 }
+
+export interface OnboardingFlowState {
+  language: SupportedLanguage;
+  name: string;
+  proficiency: ProficiencyLevel;
+  motivation: Motivation;
+}
+
+export const PLAN_LOADING_CARDS: {
+  title: string;
+  body: string;
+}[] = [
+  {
+    title: 'Your starting point',
+    body: "We'll begin with the absolute basics and build from there step by step.",
+  },
+  {
+    title: 'Daily speaking habit',
+    body: 'Short voice sessions designed to fit into your day — no flashcards required.',
+  },
+  {
+    title: 'Gentle corrections',
+    body: 'Nobi listens, responds naturally, and nudges you when grammar slips.',
+  },
+];
+
+export const FIRST_LESSON = {
+  subtitle: 'First greetings',
+  title: 'Say hello',
+  scenarioIndex: 1,
+} as const;
 
 export interface TranscriptEntry {
   id: string;

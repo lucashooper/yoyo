@@ -16,7 +16,10 @@ const KEYS = {
   sessions: '@nobi/sessions',
   customScenarios: '@nobi/custom_scenarios',
   plan: '@nobi/plan',
+  freeSessions: '@nobi/free_sessions_remaining',
 } as const;
+
+export const GUEST_FREE_SESSIONS = 5;
 
 function defaultScenario(): Scenario {
   const base = DEFAULT_SCENARIOS[0]!;
@@ -31,8 +34,27 @@ export function normalizeOnboarding(raw: Partial<OnboardingData> & { language: S
     proficiency: raw.proficiency ?? 'beginner',
     motivation: raw.motivation ?? 'daily',
     plan: raw.plan ?? 'guest',
+    name: raw.name,
     completedAt: raw.completedAt ?? new Date().toISOString(),
   };
+}
+
+export async function getFreeSessionsRemaining(): Promise<number> {
+  const raw = await AsyncStorage.getItem(KEYS.freeSessions);
+  if (raw == null) return GUEST_FREE_SESSIONS;
+  const n = parseInt(raw, 10);
+  return Number.isFinite(n) ? n : GUEST_FREE_SESSIONS;
+}
+
+export async function consumeFreeSession(): Promise<number> {
+  const remaining = await getFreeSessionsRemaining();
+  const next = Math.max(0, remaining - 1);
+  await AsyncStorage.setItem(KEYS.freeSessions, String(next));
+  return next;
+}
+
+export async function resetFreeSessions(): Promise<void> {
+  await AsyncStorage.setItem(KEYS.freeSessions, String(GUEST_FREE_SESSIONS));
 }
 
 export async function getOnboarding(): Promise<OnboardingData | null> {

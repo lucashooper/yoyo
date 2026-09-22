@@ -1,648 +1,734 @@
-import { LinearGradient } from 'expo-linear-gradient';
+import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { router } from 'expo-router';
-import React, { useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
+  ActivityIndicator,
   KeyboardAvoidingView,
-  Modal,
   Platform,
   Pressable,
   ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   View,
 } from 'react-native';
 import Animated, {
   FadeIn,
-  FadeInDown,
-  FadeInRight,
-  FadeOutLeft,
-  ZoomIn,
+  FadeInUp,
+  FadeOutDown,
+  LinearTransition,
 } from 'react-native-reanimated';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { NobiAvatar } from '../components/NobiAvatar';
-import { saveOnboarding, savePlan, saveProfile, getProfile } from '../services/storage';
+import {
+  AgentVoiceHeader,
+  OnboardingAudioBar,
+} from '../components/AgentVoiceHeader';
+import { SocialSignInButtons } from '../components/SocialSignInButtons';
+import { WaveLogo } from '../components/WaveLogo';
+import { speakAgentLine, stopAgentSpeech, type SpeechController } from '../services/onboardingSpeech';
+import {
+  getProfile,
+  resetFreeSessions,
+  saveOnboarding,
+  savePlan,
+  saveProfile,
+} from '../services/storage';
 import { colors } from '../theme/colors';
 import { typography } from '../theme/typography';
 import {
   DEFAULT_SCENARIOS,
+  FIRST_LESSON,
   LANGUAGE_OPTIONS,
   MOTIVATION_OPTIONS,
-  PLAN_OPTIONS,
+  PLAN_LOADING_CARDS,
   PROFICIENCY_OPTIONS,
-  type Motivation,
-  type PlanTier,
-  type ProficiencyLevel,
+  type OnboardingFlowState,
   type SupportedLanguage,
 } from '../types';
 
-type Step = 'welcome' | 'language' | 'goals' | 'account';
+type Step =
+  | 'splash'
+  | 'language'
+  | 'dialogue_name'
+  | 'dialogue_proficiency'
+  | 'dialogue_goal'
+  | 'plan_loading'
+  | 'account';
+
+const SPRING_ENTER = FadeInUp.springify().damping(15).stiffness(110);
+const SPRING_EXIT = FadeOutDown.duration(200);
+const LAYOUT = LinearTransition.springify();
+
+const SPEEDS = [0.8, 1.0, 1.2, 1.4];
+
+function languageLabel(lang: SupportedLanguage): string {
+  return LANGUAGE_OPTIONS.find((l) => l.value === lang)?.label ?? lang;
+}
 
 export function OnboardingScreen() {
-  const [step, setStep] = useState<Step>('welcome');
-  const [language, setLanguage] = useState<SupportedLanguage>('spanish');
-  const [proficiency, setProficiency] = useState<ProficiencyLevel>('beginner');
-  const [motivation, setMotivation] = useState<Motivation>('daily');
-  const [paywallVisible, setPaywallVisible] = useState(false);
-  const [selectedPlan, setSelectedPlan] = useState<Exclude<PlanTier, 'guest'>>('yearly');
+  const [step, setStep] = useState<Step>('splash');
+  const [flow, setFlow] = useState<OnboardingFlowState>({
+    language: 'spanish',
+    name: '',
+    proficiency: 'beginner',
+    motivation: 'daily',
+  });
+  const [agentText, setAgentText] = useState('');
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [playbackProgress, setPlaybackProgress] = useState(0);
+  const [speedIdx, setSpeedIdx] = useState(1);
+  const [isListening, setIsListening] = useState(false);
+  const [loadingCardIdx, setLoadingCardIdx] = useState(0);
+  const [loadingText, setLoadingText] = useState('Building your plan…');
+  const speechRef = useRef<SpeechController | null>(null);
 
-  const defaultScenario = useMemo(
-    () => ({ ...DEFAULT_SCENARIOS[0]!, id: 'scenario_0' }),
-    [],
+  const speed = SPEEDS[speedIdx] ?? 1.0;
+
+  const go = useCallback((next: Step) => {
+    void Haptics.selectionAsync();
+    stopAgentSpeech();
+    setIsPlaying(false);
+    setPlaybackProgress(0);
+    setStep(next);
+  }, []);
+
+  const playLine = useCallback(
+    (text: string, lang: SupportedLanguage = flow.language) => {
+      stopAgentSpeech();
+      setAgentText(text);
+      setIsPlaying(true);
+      setPlaybackProgress(0);
+      speechRef.current = speakAgentLine(
+        text,
+        lang,
+        speed,
+        setPlaybackProgress,
+        () => setIsPlaying(false),
+      );
+    },
+    [flow.language, speed],
   );
 
-  const go = (next: Step) => {
-    void Haptics.selectionAsync();
-    setStep(next);
-  };
+  useEffect(() => {
+    if (step === 'dialogue_name') {
+      playLine(
+        `¡Hola! Welcome, I'm Nobi! Let's get started! What's your name?`,
+        flow.language,
+      );
+    } else if (step === 'dialogue_proficiency' && flow.name) {
+      playLine(
+        `Nice to meet you, ${flow.name}! How much ${languageLabel(flow.language)} do you know?`,
+      );
+    } else if (step === 'dialogue_goal') {
+      playLine(`What would you like to achieve with ${languageLabel(flow.language)}?`);
+    }
+    return () => stopAgentSpeech();
+  }, [step, flow.name, flow.language, playLine]);
 
-  const complete = async (plan: PlanTier) => {
+  useEffect(() => {
+    if (step !== 'plan_loading') return;
+
+    const texts = [
+      'Analyzing your answers…',
+      'Picking your first scenarios…',
+      "Tuning Nobi's voice for you…",
+      'Almost ready!',
+    ];
+    let textIdx = 0;
+    let cardIdx = 0;
+
+    const textTimer = setInterval(() => {
+      textIdx = (textIdx + 1) % texts.length;
+      setLoadingText(texts[textIdx]!);
+    }, 1400);
+
+    const cardTimer = setInterval(() => {
+      cardIdx = (cardIdx + 1) % PLAN_LOADING_CARDS.length;
+      setLoadingCardIdx(cardIdx);
+    }, 2200);
+
+    const done = setTimeout(() => go('account'), 6800);
+
+    return () => {
+      clearInterval(textTimer);
+      clearInterval(cardTimer);
+      clearTimeout(done);
+    };
+  }, [step, go]);
+
+  const complete = async (asGuest = true) => {
     void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    stopAgentSpeech();
+
+    const firstScenario = {
+      ...DEFAULT_SCENARIOS[FIRST_LESSON.scenarioIndex]!,
+      id: 'lesson_0',
+    };
+
     await saveOnboarding({
-      language,
-      scenario: defaultScenario,
-      proficiency,
-      motivation,
-      plan,
+      language: flow.language,
+      scenario: firstScenario,
+      proficiency: flow.proficiency,
+      motivation: flow.motivation,
+      plan: 'guest',
+      name: flow.name.trim() || undefined,
       completedAt: new Date().toISOString(),
     });
-    await savePlan(plan);
+    await savePlan('guest');
+    await resetFreeSessions();
+
     const profile = await getProfile();
-    if (profile.displayName === 'You') {
-      await saveProfile({ ...profile, displayName: 'Learner' });
-    }
+    await saveProfile({
+      ...profile,
+      displayName: flow.name.trim() || 'Learner',
+    });
+
     router.replace('/home');
   };
 
+  const togglePlay = () => {
+    if (isPlaying) {
+      stopAgentSpeech();
+      setIsPlaying(false);
+    } else if (agentText) {
+      playLine(agentText);
+    }
+  };
+
+  const cycleSpeed = () => {
+    setSpeedIdx((i) => (i + 1) % SPEEDS.length);
+  };
+
+  const canContinueName = flow.name.trim().length >= 1;
+
+  const cardShadow = useMemo(
+    () => ({
+      shadowColor: colors.shadow,
+      shadowOffset: { width: 0, height: 6 },
+      shadowOpacity: 0.08,
+      shadowRadius: 16,
+      elevation: 4,
+    }),
+    [],
+  );
+
   return (
     <View style={styles.root}>
-      <LinearGradient
-        colors={[colors.backgroundWarm, colors.backgroundDeep, colors.background]}
-        locations={[0, 0.45, 1]}
-        style={StyleSheet.absoluteFill}
-      />
-      <SafeAreaView style={styles.safe}>
+      <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
         <KeyboardAvoidingView
           style={styles.flex}
           behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         >
+          {step !== 'splash' && step !== 'plan_loading' && step !== 'account' && (
+            <AgentVoiceHeader
+              onClose={() => go('splash')}
+              showHelp={step.startsWith('dialogue')}
+            />
+          )}
+
           <ScrollView
-            contentContainerStyle={styles.container}
+            contentContainerStyle={styles.scroll}
             showsVerticalScrollIndicator={false}
             keyboardShouldPersistTaps="handled"
           >
-            {step === 'welcome' && (
-              <Animated.View entering={FadeInDown.duration(560)} style={styles.welcome}>
-                <Animated.View entering={ZoomIn.delay(120).duration(520)}>
-                  <NobiAvatar state="idle" size={168} />
+            <Animated.View layout={LAYOUT}>
+              {step === 'splash' && (
+                <Animated.View
+                  entering={SPRING_ENTER}
+                  exiting={SPRING_EXIT}
+                  style={styles.splash}
+                >
+                  <WaveLogo size="lg" animated />
+                  <Pressable
+                    style={styles.splashNext}
+                    onPress={() => go('language')}
+                  >
+                    <Ionicons name="chevron-forward" size={28} color="#fff" />
+                  </Pressable>
+                  <Pressable onPress={() => go('account')}>
+                    <Text style={styles.splashLink}>Already have an account?</Text>
+                  </Pressable>
                 </Animated.View>
-                <Text style={styles.brand}>Nobi</Text>
-                <Text style={styles.headline}>Speak fluently with your AI language companion</Text>
-                <Text style={styles.subhead}>
-                  Real conversations, gentle corrections, and a streak that keeps you coming back.
-                </Text>
-                <Pressable style={styles.primaryButton} onPress={() => go('language')}>
-                  <Text style={styles.primaryButtonText}>Get started</Text>
-                </Pressable>
-              </Animated.View>
-            )}
+              )}
 
-            {step === 'language' && (
-              <Animated.View entering={FadeInRight.duration(380)} exiting={FadeOutLeft.duration(220)}>
-                <StepHeader
-                  step={1}
-                  title="Choose your language"
-                  subtitle="You’ll practice speaking this every day."
-                />
-                <View style={styles.langGrid}>
-                  {LANGUAGE_OPTIONS.map((opt) => {
-                    const active = language === opt.value;
-                    return (
+              {step === 'language' && (
+                <Animated.View entering={SPRING_ENTER} exiting={SPRING_EXIT}>
+                  <Pressable style={styles.backCircle} onPress={() => go('splash')}>
+                    <Ionicons name="chevron-back" size={20} color={colors.text} />
+                  </Pressable>
+                  <View style={styles.langHeader}>
+                    <WaveLogo size="sm" />
+                    <Text style={styles.langTitle}>Which language do you want to learn?</Text>
+                  </View>
+                  <View style={styles.langList}>
+                    {LANGUAGE_OPTIONS.map((opt) => {
+                      const active = flow.language === opt.value;
+                      return (
+                        <Animated.View key={opt.value} layout={LAYOUT}>
+                          <Pressable
+                            style={[styles.langPill, active && styles.langPillActive, cardShadow]}
+                            onPress={() => {
+                              void Haptics.selectionAsync();
+                              setFlow((f) => ({ ...f, language: opt.value }));
+                            }}
+                          >
+                            <Text style={styles.langFlag}>{opt.flag}</Text>
+                            <Text style={[styles.langPillText, active && styles.langPillTextActive]}>
+                              {opt.label}
+                            </Text>
+                          </Pressable>
+                        </Animated.View>
+                      );
+                    })}
+                  </View>
+                  <Pressable
+                    style={[styles.primaryPill, cardShadow]}
+                    onPress={() => go('dialogue_name')}
+                  >
+                    <Text style={styles.primaryPillText}>Continue</Text>
+                  </Pressable>
+                </Animated.View>
+              )}
+
+              {(step === 'dialogue_name' ||
+                step === 'dialogue_proficiency' ||
+                step === 'dialogue_goal') && (
+                <Animated.View entering={SPRING_ENTER} exiting={SPRING_EXIT} style={styles.dialogue}>
+                  <Text style={styles.agentLine}>{agentText}</Text>
+
+                  {step === 'dialogue_name' && (
+                    <Animated.View entering={FadeIn.duration(300)} style={styles.inputBlock}>
+                      <TextInput
+                        style={[styles.nameInput, cardShadow]}
+                        placeholder="Your name"
+                        placeholderTextColor={colors.textLight}
+                        value={flow.name}
+                        onChangeText={(name) => setFlow((f) => ({ ...f, name }))}
+                        autoCapitalize="words"
+                        returnKeyType="done"
+                        onSubmitEditing={() => canContinueName && go('dialogue_proficiency')}
+                      />
                       <Pressable
-                        key={opt.value}
-                        style={[styles.langCard, active && styles.langCardActive]}
-                        onPress={() => {
-                          void Haptics.selectionAsync();
-                          setLanguage(opt.value);
-                        }}
+                        style={[
+                          styles.micBtn,
+                          isListening && styles.micBtnActive,
+                          cardShadow,
+                        ]}
+                        onPressIn={() => setIsListening(true)}
+                        onPressOut={() => setIsListening(false)}
                       >
-                        <Text style={styles.langFlag}>{opt.flag}</Text>
-                        <Text style={[styles.langLabel, active && styles.langLabelActive]}>
-                          {opt.label}
+                        <Ionicons
+                          name={isListening ? 'mic' : 'mic-outline'}
+                          size={22}
+                          color={isListening ? '#fff' : colors.pingoBlue}
+                        />
+                        <Text style={[styles.micLabel, isListening && styles.micLabelActive]}>
+                          {isListening ? 'Listening…' : 'Tap to speak'}
                         </Text>
-                        <Text style={styles.langNative}>{opt.nativeLabel}</Text>
                       </Pressable>
-                    );
-                  })}
-                </View>
-                <View style={styles.row}>
-                  <Pressable style={styles.secondaryButton} onPress={() => go('welcome')}>
-                    <Text style={styles.secondaryButtonText}>Back</Text>
-                  </Pressable>
-                  <Pressable
-                    style={[styles.primaryButton, styles.flexButton]}
-                    onPress={() => go('goals')}
-                  >
-                    <Text style={styles.primaryButtonText}>Continue</Text>
-                  </Pressable>
-                </View>
-              </Animated.View>
-            )}
-
-            {step === 'goals' && (
-              <Animated.View entering={FadeInRight.duration(380)} exiting={FadeOutLeft.duration(220)}>
-                <StepHeader
-                  step={2}
-                  title="Your level & goal"
-                  subtitle="We’ll tune scenarios and pace to match."
-                />
-                <Text style={styles.sectionLabel}>Proficiency</Text>
-                <View style={styles.stack}>
-                  {PROFICIENCY_OPTIONS.map((opt) => {
-                    const active = proficiency === opt.value;
-                    return (
                       <Pressable
-                        key={opt.value}
-                        style={[styles.choiceRow, active && styles.choiceRowActive]}
-                        onPress={() => setProficiency(opt.value)}
+                        style={[
+                          styles.primaryPill,
+                          !canContinueName && styles.disabled,
+                          cardShadow,
+                        ]}
+                        disabled={!canContinueName}
+                        onPress={() => go('dialogue_proficiency')}
                       >
-                        <View style={styles.flex}>
-                          <Text style={[styles.choiceTitle, active && styles.choiceTitleActive]}>
-                            {opt.label}
-                          </Text>
-                          <Text style={styles.choiceDesc}>{opt.description}</Text>
-                        </View>
-                        <View style={[styles.radio, active && styles.radioActive]} />
+                        <Text style={styles.primaryPillText}>Continue</Text>
                       </Pressable>
-                    );
-                  })}
-                </View>
+                      <Text style={styles.legal}>
+                        Nobi uses AI services to power conversations. By continuing, you agree to
+                        our Terms & Privacy Policy.
+                      </Text>
+                    </Animated.View>
+                  )}
 
-                <Text style={[styles.sectionLabel, { marginTop: 20 }]}>Why are you learning?</Text>
-                <View style={styles.stack}>
-                  {MOTIVATION_OPTIONS.map((opt) => {
-                    const active = motivation === opt.value;
-                    return (
-                      <Pressable
-                        key={opt.value}
-                        style={[styles.choiceRow, active && styles.choiceRowActive]}
-                        onPress={() => setMotivation(opt.value)}
-                      >
-                        <Text style={styles.choiceIcon}>{opt.icon}</Text>
-                        <View style={styles.flex}>
-                          <Text style={[styles.choiceTitle, active && styles.choiceTitleActive]}>
-                            {opt.label}
-                          </Text>
-                          <Text style={styles.choiceDesc}>{opt.description}</Text>
-                        </View>
-                      </Pressable>
-                    );
-                  })}
-                </View>
+                  {step === 'dialogue_proficiency' && (
+                    <Animated.View entering={FadeIn.duration(300)} style={styles.choiceStack}>
+                      {PROFICIENCY_OPTIONS.map((opt) => {
+                        const active = flow.proficiency === opt.value;
+                        return (
+                          <Pressable
+                            key={opt.value}
+                            style={[styles.choiceCard, active && styles.choiceCardActive, cardShadow]}
+                            onPress={() => {
+                              void Haptics.selectionAsync();
+                              setFlow((f) => ({ ...f, proficiency: opt.value }));
+                              setTimeout(() => go('dialogue_goal'), 280);
+                            }}
+                          >
+                            <Text style={[styles.choiceTitle, active && styles.choiceTitleActive]}>
+                              {opt.label}
+                            </Text>
+                            <Text style={styles.choiceDesc}>{opt.description}</Text>
+                          </Pressable>
+                        );
+                      })}
+                    </Animated.View>
+                  )}
 
-                <View style={styles.row}>
-                  <Pressable style={styles.secondaryButton} onPress={() => go('language')}>
-                    <Text style={styles.secondaryButtonText}>Back</Text>
+                  {step === 'dialogue_goal' && (
+                    <Animated.View entering={FadeIn.duration(300)} style={styles.choiceStack}>
+                      {MOTIVATION_OPTIONS.map((opt) => {
+                        const active = flow.motivation === opt.value;
+                        return (
+                          <Pressable
+                            key={opt.value}
+                            style={[styles.choiceCard, active && styles.choiceCardActive, cardShadow]}
+                            onPress={() => {
+                              void Haptics.selectionAsync();
+                              setFlow((f) => ({ ...f, motivation: opt.value }));
+                              setTimeout(() => go('plan_loading'), 280);
+                            }}
+                          >
+                            <Text style={styles.choiceIcon}>{opt.icon}</Text>
+                            <Text style={[styles.choiceTitle, active && styles.choiceTitleActive]}>
+                              {opt.label}
+                            </Text>
+                            <Text style={styles.choiceDesc}>{opt.description}</Text>
+                          </Pressable>
+                        );
+                      })}
+                    </Animated.View>
+                  )}
+                </Animated.View>
+              )}
+
+              {step === 'plan_loading' && (
+                <Animated.View entering={SPRING_ENTER} exiting={SPRING_EXIT} style={styles.loadingWrap}>
+                  <Pressable style={styles.backCircle} onPress={() => go('dialogue_goal')}>
+                    <Ionicons name="chevron-back" size={20} color={colors.text} />
                   </Pressable>
-                  <Pressable
-                    style={[styles.primaryButton, styles.flexButton]}
-                    onPress={() => go('account')}
+                  <View style={styles.loadingHeader}>
+                    <WaveLogo size="sm" />
+                  </View>
+
+                  <Animated.View
+                    key={loadingCardIdx}
+                    entering={FadeInUp.springify().damping(14).stiffness(100)}
+                    style={[styles.planCard, cardShadow]}
                   >
-                    <Text style={styles.primaryButtonText}>Continue</Text>
+                    <View style={styles.planCardIcon}>
+                      <View style={[styles.dot, { backgroundColor: colors.pingoBlue }]} />
+                      <View style={[styles.dot, { backgroundColor: colors.pingoPink }]} />
+                      <View style={[styles.dot, { backgroundColor: colors.pingoYellow }]} />
+                    </View>
+                    <Text style={styles.planCardTitle}>
+                      Your {languageLabel(flow.language)} starting point
+                    </Text>
+                    <Text style={styles.planCardBody}>
+                      {PLAN_LOADING_CARDS[loadingCardIdx]?.body}
+                    </Text>
+                  </Animated.View>
+
+                  <View style={styles.dotsRow}>
+                    {PLAN_LOADING_CARDS.map((_, i) => (
+                      <View
+                        key={i}
+                        style={[styles.pageDot, i === loadingCardIdx && styles.pageDotActive]}
+                      />
+                    ))}
+                  </View>
+
+                  <ActivityIndicator size="large" color={colors.pingoBlue} style={{ marginTop: 20 }} />
+                  <Animated.Text entering={FadeIn} style={styles.loadingText}>
+                    {loadingText}
+                  </Animated.Text>
+                </Animated.View>
+              )}
+
+              {step === 'account' && (
+                <Animated.View entering={SPRING_ENTER} exiting={SPRING_EXIT} style={styles.account}>
+                  <Pressable style={styles.backCircle} onPress={() => go('plan_loading')}>
+                    <Ionicons name="chevron-back" size={20} color={colors.text} />
                   </Pressable>
-                </View>
-              </Animated.View>
-            )}
+                  <View style={styles.accountHeader}>
+                    <WaveLogo size="sm" />
+                    <Text style={styles.accountTitle}>Create an account</Text>
+                  </View>
 
-            {step === 'account' && (
-              <Animated.View entering={FadeInRight.duration(380)} exiting={FadeOutLeft.duration(220)}>
-                <StepHeader
-                  step={3}
-                  title="Create your space"
-                  subtitle="Sign in later — or jump in as a guest."
-                />
-                <View style={styles.accountHero}>
-                  <NobiAvatar state="idle" size={96} />
-                </View>
+                  <SocialSignInButtons
+                    onApple={() => void complete(true)}
+                    onGoogle={() => void complete(true)}
+                  />
 
-                <Pressable
-                  style={styles.socialButton}
-                  onPress={() => {
-                    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                    setPaywallVisible(true);
-                  }}
-                >
-                  <Text style={styles.socialEmoji}>A</Text>
-                  <Text style={styles.socialText}>Continue with Apple</Text>
-                </Pressable>
-                <Pressable
-                  style={styles.socialButton}
-                  onPress={() => {
-                    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                    setPaywallVisible(true);
-                  }}
-                >
-                  <Text style={styles.socialEmoji}>G</Text>
-                  <Text style={styles.socialText}>Continue with Google</Text>
-                </Pressable>
-
-                <Pressable
-                  style={[styles.primaryButton, { marginTop: 8 }]}
-                  onPress={() => setPaywallVisible(true)}
-                >
-                  <Text style={styles.primaryButtonText}>See plans</Text>
-                </Pressable>
-
-                <Pressable style={styles.guestLink} onPress={() => void complete('guest')}>
-                  <Text style={styles.guestText}>Continue as guest</Text>
-                </Pressable>
-
-                <Pressable style={styles.backOnly} onPress={() => go('goals')}>
-                  <Text style={styles.secondaryButtonText}>Back</Text>
-                </Pressable>
-              </Animated.View>
-            )}
+                  <Pressable style={styles.guestLink} onPress={() => void complete(true)}>
+                    <Text style={styles.guestText}>Continue as guest — free plan</Text>
+                  </Pressable>
+                  <Text style={styles.freeNote}>
+                    Guest includes {5} free voice sessions with full features.
+                  </Text>
+                </Animated.View>
+              )}
+            </Animated.View>
           </ScrollView>
+
+          {(step === 'dialogue_name' ||
+            step === 'dialogue_proficiency' ||
+            step === 'dialogue_goal') && (
+            <OnboardingAudioBar
+              isPlaying={isPlaying}
+              progress={playbackProgress}
+              speed={speed}
+              onTogglePlay={togglePlay}
+              onCycleSpeed={cycleSpeed}
+              statusText={isListening ? "I'm listening…" : undefined}
+            />
+          )}
         </KeyboardAvoidingView>
       </SafeAreaView>
-
-      <PaywallModal
-        visible={paywallVisible}
-        selected={selectedPlan}
-        onSelect={setSelectedPlan}
-        onClose={() => setPaywallVisible(false)}
-        onConfirm={() => {
-          setPaywallVisible(false);
-          void complete(selectedPlan);
-        }}
-        onGuest={() => {
-          setPaywallVisible(false);
-          void complete('guest');
-        }}
-      />
     </View>
   );
 }
 
-function StepHeader({
-  step,
-  title,
-  subtitle,
-}: {
-  step: number;
-  title: string;
-  subtitle: string;
-}) {
-  return (
-    <Animated.View entering={FadeIn.duration(300)} style={styles.stepHeader}>
-      <Text style={styles.stepMeta}>Step {step} of 3</Text>
-      <Text style={styles.stepTitle}>{title}</Text>
-      <Text style={styles.stepSubtitle}>{subtitle}</Text>
-    </Animated.View>
-  );
-}
-
-function PaywallModal({
-  visible,
-  selected,
-  onSelect,
-  onClose,
-  onConfirm,
-  onGuest,
-}: {
-  visible: boolean;
-  selected: Exclude<PlanTier, 'guest'>;
-  onSelect: (plan: Exclude<PlanTier, 'guest'>) => void;
-  onClose: () => void;
-  onConfirm: () => void;
-  onGuest: () => void;
-}) {
-  return (
-    <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
-      <View style={styles.modalBackdrop}>
-        <View style={styles.modalSheet}>
-          <View style={styles.modalHandle} />
-          <Text style={styles.modalTitle}>Unlock unlimited practice</Text>
-          <Text style={styles.modalSubtitle}>Pick a plan — cancel anytime on Monthly & Yearly.</Text>
-
-          {PLAN_OPTIONS.map((plan) => {
-            const active = selected === plan.value;
-            return (
-              <Pressable
-                key={plan.value}
-                style={[styles.planCard, active && styles.planCardActive]}
-                onPress={() => onSelect(plan.value)}
-              >
-                <View style={styles.planTop}>
-                  <Text style={[styles.planLabel, active && styles.planLabelActive]}>
-                    {plan.label}
-                  </Text>
-                  {plan.badge ? (
-                    <View style={styles.badge}>
-                      <Text style={styles.badgeText}>{plan.badge}</Text>
-                    </View>
-                  ) : null}
-                </View>
-                <Text style={styles.planPrice}>
-                  {plan.price}
-                  <Text style={styles.planPer}> {plan.per}</Text>
-                </Text>
-                {plan.highlights.map((h) => (
-                  <Text key={h} style={styles.planHighlight}>
-                    · {h}
-                  </Text>
-                ))}
-              </Pressable>
-            );
-          })}
-
-          <Pressable style={styles.primaryButton} onPress={onConfirm}>
-            <Text style={styles.primaryButtonText}>Start with {selected}</Text>
-          </Pressable>
-          <Pressable style={styles.guestLink} onPress={onGuest}>
-            <Text style={styles.guestText}>Maybe later — continue as guest</Text>
-          </Pressable>
-          <Pressable style={styles.backOnly} onPress={onClose}>
-            <Text style={styles.secondaryButtonText}>Close</Text>
-          </Pressable>
-        </View>
-      </View>
-    </Modal>
-  );
-}
-
 const styles = StyleSheet.create({
-  root: { flex: 1 },
+  root: { flex: 1, backgroundColor: colors.canvas },
   safe: { flex: 1 },
   flex: { flex: 1 },
-  container: {
-    padding: 24,
-    paddingBottom: 48,
+  scroll: {
     flexGrow: 1,
+    paddingHorizontal: 24,
+    paddingBottom: 32,
   },
-  welcome: {
+  splash: {
     flexGrow: 1,
+    minHeight: 520,
     alignItems: 'center',
     justifyContent: 'center',
-    paddingTop: 24,
-    minHeight: 520,
+    gap: 48,
   },
-  brand: {
-    ...typography.hero,
-    color: colors.primaryDark,
-    marginTop: 18,
+  splashNext: {
+    width: 72,
+    height: 72,
+    borderRadius: 36,
+    backgroundColor: colors.pingoBlue,
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: colors.pingoBlue,
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.35,
+    shadowRadius: 16,
+    elevation: 6,
   },
-  headline: {
+  splashLink: {
+    ...typography.label,
+    color: colors.text,
+    fontSize: 16,
+  },
+  backCircle: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: colors.surfaceMuted,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 12,
+  },
+  langHeader: {
+    alignItems: 'center',
+    gap: 20,
+    marginBottom: 28,
+  },
+  langTitle: {
     ...typography.display,
     color: colors.text,
     textAlign: 'center',
-    marginTop: 12,
-    paddingHorizontal: 8,
+    lineHeight: 38,
   },
-  subhead: {
-    ...typography.body,
-    color: colors.textMuted,
-    textAlign: 'center',
-    marginTop: 12,
-    marginBottom: 32,
-    paddingHorizontal: 12,
-  },
-  stepHeader: { marginBottom: 20 },
-  stepMeta: {
-    ...typography.tiny,
-    color: colors.primary,
-    textTransform: 'uppercase',
-    letterSpacing: 1,
-    marginBottom: 8,
-  },
-  stepTitle: {
-    ...typography.title,
-    color: colors.text,
-    marginBottom: 6,
-  },
-  stepSubtitle: {
-    ...typography.caption,
-    color: colors.textMuted,
-  },
-  langGrid: {
+  langList: { gap: 10, marginBottom: 24 },
+  langPill: {
     flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 12,
-    marginBottom: 24,
-  },
-  langCard: {
-    width: '47%',
+    alignItems: 'center',
+    gap: 14,
     backgroundColor: colors.surface,
-    borderRadius: 18,
+    borderRadius: 24,
+    paddingVertical: 16,
+    paddingHorizontal: 20,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  langPillActive: {
+    borderColor: colors.pingoBlue,
+    backgroundColor: '#EBF3FE',
+  },
+  langFlag: { fontSize: 22 },
+  langPillText: {
+    ...typography.subtitle,
+    color: colors.text,
+  },
+  langPillTextActive: { color: colors.pingoBlue },
+  primaryPill: {
+    backgroundColor: colors.pingoBlue,
+    borderRadius: 28,
     paddingVertical: 18,
-    paddingHorizontal: 14,
-    borderWidth: 1.5,
-    borderColor: colors.border,
     alignItems: 'center',
+    marginTop: 8,
   },
-  langCardActive: {
-    borderColor: colors.primary,
-    backgroundColor: colors.primarySoft,
-  },
-  langFlag: { fontSize: 28, marginBottom: 8 },
-  langLabel: {
-    ...typography.subtitle,
-    color: colors.text,
-  },
-  langLabelActive: { color: colors.primaryDark },
-  langNative: {
-    ...typography.tiny,
-    color: colors.textMuted,
-    marginTop: 2,
-  },
-  sectionLabel: {
+  primaryPillText: {
     ...typography.label,
-    color: colors.textMuted,
-    marginBottom: 10,
+    color: '#fff',
+    fontSize: 17,
   },
-  stack: { gap: 10, marginBottom: 8 },
-  choiceRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    backgroundColor: colors.surface,
-    borderRadius: 16,
-    padding: 16,
-    borderWidth: 1.5,
-    borderColor: colors.border,
+  disabled: { opacity: 0.45 },
+  dialogue: {
+    flexGrow: 1,
+    paddingTop: 32,
+    minHeight: 400,
   },
-  choiceRowActive: {
-    borderColor: colors.primary,
-    backgroundColor: colors.primarySoft,
-  },
-  choiceIcon: { fontSize: 22 },
-  choiceTitle: {
-    ...typography.subtitle,
+  agentLine: {
+    ...typography.display,
     color: colors.text,
+    lineHeight: 40,
+    marginBottom: 32,
   },
-  choiceTitleActive: { color: colors.primaryDark },
-  choiceDesc: {
-    ...typography.caption,
-    color: colors.textMuted,
-    marginTop: 2,
+  inputBlock: { gap: 14 },
+  nameInput: {
+    backgroundColor: colors.surfaceMuted,
+    borderRadius: 24,
+    paddingHorizontal: 20,
+    paddingVertical: 18,
+    ...typography.body,
+    color: colors.text,
+    fontSize: 18,
   },
-  radio: {
-    width: 18,
-    height: 18,
-    borderRadius: 9,
-    borderWidth: 2,
-    borderColor: colors.border,
-  },
-  radioActive: {
-    borderColor: colors.primary,
-    backgroundColor: colors.primary,
-  },
-  accountHero: {
-    alignItems: 'center',
-    marginBottom: 20,
-  },
-  socialButton: {
+  micBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: 10,
     backgroundColor: colors.surface,
-    borderRadius: 16,
-    paddingVertical: 15,
+    borderRadius: 24,
+    paddingVertical: 16,
+    borderWidth: 1.5,
+    borderColor: colors.pingoBlue,
+  },
+  micBtnActive: {
+    backgroundColor: colors.pingoBlue,
+    borderColor: colors.pingoBlue,
+  },
+  micLabel: {
+    ...typography.label,
+    color: colors.pingoBlue,
+  },
+  micLabelActive: { color: '#fff' },
+  legal: {
+    ...typography.tiny,
+    color: colors.textMuted,
+    textAlign: 'center',
+    lineHeight: 18,
+    marginTop: 8,
+  },
+  choiceStack: { gap: 12 },
+  choiceCard: {
+    backgroundColor: colors.surface,
+    borderRadius: 24,
+    padding: 20,
     borderWidth: 1.5,
     borderColor: colors.border,
-    marginBottom: 10,
   },
-  socialEmoji: {
+  choiceCardActive: {
+    borderColor: colors.pingoBlue,
+    backgroundColor: '#EBF3FE',
+  },
+  choiceIcon: { fontSize: 24, marginBottom: 6 },
+  choiceTitle: {
     ...typography.subtitle,
     color: colors.text,
-    width: 22,
-    textAlign: 'center',
+    marginBottom: 4,
   },
-  socialText: {
-    ...typography.label,
+  choiceTitleActive: { color: colors.pingoBlue },
+  choiceDesc: {
+    ...typography.caption,
+    color: colors.textMuted,
+  },
+  loadingWrap: {
+    flexGrow: 1,
+    minHeight: 520,
+    alignItems: 'center',
+  },
+  loadingHeader: { marginBottom: 28, marginTop: 8 },
+  planCard: {
+    backgroundColor: colors.surface,
+    borderRadius: 24,
+    padding: 28,
+    width: '100%',
+    alignItems: 'center',
+  },
+  planCardIcon: {
+    flexDirection: 'row',
+    gap: 8,
+    marginBottom: 20,
+  },
+  dot: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+  },
+  planCardTitle: {
+    ...typography.title,
     color: colors.text,
-    fontSize: 15,
+    textAlign: 'center',
+    marginBottom: 12,
+  },
+  planCardBody: {
+    ...typography.body,
+    color: colors.textMuted,
+    textAlign: 'center',
+    lineHeight: 24,
+  },
+  dotsRow: {
+    flexDirection: 'row',
+    gap: 8,
+    marginTop: 20,
+    alignItems: 'center',
+  },
+  pageDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: colors.border,
+  },
+  pageDotActive: {
+    width: 24,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: colors.pingoBlue,
+  },
+  loadingText: {
+    ...typography.caption,
+    color: colors.textMuted,
+    marginTop: 12,
+  },
+  account: {
+    flexGrow: 1,
+    minHeight: 480,
+    paddingTop: 8,
+  },
+  accountHeader: {
+    alignItems: 'center',
+    gap: 24,
+    marginBottom: 36,
+    marginTop: 12,
+  },
+  accountTitle: {
+    ...typography.display,
+    color: colors.text,
+    textAlign: 'center',
   },
   guestLink: {
     alignItems: 'center',
-    paddingVertical: 14,
+    paddingVertical: 20,
   },
   guestText: {
     ...typography.label,
-    color: colors.primary,
+    color: colors.pingoBlue,
+    fontSize: 15,
   },
-  backOnly: {
-    alignItems: 'center',
-    paddingVertical: 8,
-  },
-  row: {
-    flexDirection: 'row',
-    gap: 12,
-    marginTop: 12,
-  },
-  primaryButton: {
-    backgroundColor: colors.primary,
-    borderRadius: 16,
-    paddingVertical: 16,
-    alignItems: 'center',
-    alignSelf: 'stretch',
-  },
-  flexButton: { flex: 1 },
-  primaryButtonText: {
-    ...typography.label,
-    color: '#fff',
-    fontSize: 16,
-  },
-  secondaryButton: {
-    borderRadius: 16,
-    paddingVertical: 16,
-    paddingHorizontal: 20,
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.surface,
-  },
-  secondaryButtonText: {
-    ...typography.label,
-    color: colors.textMuted,
-  },
-  modalBackdrop: {
-    flex: 1,
-    backgroundColor: colors.overlay,
-    justifyContent: 'flex-end',
-  },
-  modalSheet: {
-    backgroundColor: colors.surface,
-    borderTopLeftRadius: 28,
-    borderTopRightRadius: 28,
-    padding: 24,
-    paddingBottom: 36,
-  },
-  modalHandle: {
-    alignSelf: 'center',
-    width: 40,
-    height: 4,
-    borderRadius: 2,
-    backgroundColor: colors.border,
-    marginBottom: 16,
-  },
-  modalTitle: {
-    ...typography.title,
-    color: colors.text,
-    marginBottom: 6,
-  },
-  modalSubtitle: {
+  freeNote: {
     ...typography.caption,
     color: colors.textMuted,
-    marginBottom: 18,
-  },
-  planCard: {
-    borderRadius: 16,
-    borderWidth: 1.5,
-    borderColor: colors.border,
-    padding: 14,
-    marginBottom: 10,
-    backgroundColor: colors.background,
-  },
-  planCardActive: {
-    borderColor: colors.primary,
-    backgroundColor: colors.primarySoft,
-  },
-  planTop: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    marginBottom: 4,
-  },
-  planLabel: {
-    ...typography.subtitle,
-    color: colors.text,
-  },
-  planLabelActive: { color: colors.primaryDark },
-  badge: {
-    backgroundColor: colors.accentSoft,
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-    borderRadius: 8,
-  },
-  badgeText: {
-    ...typography.tiny,
-    color: colors.accent,
-    fontWeight: '700',
-  },
-  planPrice: {
-    ...typography.title,
-    color: colors.text,
-    marginBottom: 6,
-  },
-  planPer: {
-    ...typography.caption,
-    color: colors.textMuted,
-    fontWeight: '500',
-  },
-  planHighlight: {
-    ...typography.caption,
-    color: colors.textMuted,
+    textAlign: 'center',
   },
 });

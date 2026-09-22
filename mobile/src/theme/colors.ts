@@ -30,6 +30,12 @@ export const colors = {
   micAura: 'rgba(26, 140, 158, 0.18)',
   waveActive: '#1A8C9E',
   waveIdle: '#A8C0CB',
+  // Pingo-inspired accents
+  pingoBlue: '#2F80ED',
+  pingoYellow: '#F2C94C',
+  pingoPink: '#EB5757',
+  shadow: '#1A2B34',
+  canvas: '#FAFBFC',
 } as const;
 
 export type ColorKey = keyof typeof colors;

@@ -1,55 +1,37 @@
-import { LinearGradient } from 'expo-linear-gradient';
 import * as Haptics from 'expo-haptics';
 import { router, useFocusEffect } from 'expo-router';
 import React, { useCallback, useMemo, useState } from 'react';
-import {
-  Modal,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TextInput,
-  View,
-} from 'react-native';
-import Animated, { FadeInDown, FadeInRight } from 'react-native-reanimated';
+import { Modal, Pressable, StyleSheet, Text, View } from 'react-native';
+import Animated, { FadeInUp, LinearTransition } from 'react-native-reanimated';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { LeaderboardModal } from '../components/LeaderboardModal';
+import { MyPlanDrawer } from '../components/MyPlanDrawer';
 import { StreakPill } from '../components/StreakPill';
+import { WaveLogo } from '../components/WaveLogo';
 import { useStreak } from '../hooks/useStreak';
 import {
   getCustomScenarios,
+  getFreeSessionsRemaining,
   getOnboarding,
-  getProfile,
-  saveCustomScenario,
   saveOnboarding,
 } from '../services/storage';
 import { colors } from '../theme/colors';
 import { typography } from '../theme/typography';
 import {
   DEFAULT_SCENARIOS,
+  FIRST_LESSON,
   LANGUAGE_OPTIONS,
   type OnboardingData,
   type Scenario,
-  type ScenarioDifficulty,
-  type UserProfile,
 } from '../types';
-
-const DIFFICULTY_COLOR: Record<ScenarioDifficulty, string> = {
-  easy: colors.success,
-  medium: colors.warning,
-  hard: colors.accent,
-};
 
 export function HomeScreen() {
   const { streak, refresh } = useStreak();
   const [onboarding, setOnboarding] = useState<OnboardingData | null>(null);
-  const [profile, setProfile] = useState<UserProfile | null>(null);
   const [customScenarios, setCustomScenarios] = useState<Scenario[]>([]);
-  const [leaderboardOpen, setLeaderboardOpen] = useState(false);
-  const [customOpen, setCustomOpen] = useState(false);
+  const [freeSessions, setFreeSessions] = useState(5);
   const [langOpen, setLangOpen] = useState(false);
-  const [customTitle, setCustomTitle] = useState('');
-  const [customPrompt, setCustomPrompt] = useState('');
+  const [progressOpen, setProgressOpen] = useState(false);
+  const [lessonIndex, setLessonIndex] = useState(0);
 
   const load = useCallback(async () => {
     const data = await getOnboarding();
@@ -58,8 +40,8 @@ export function HomeScreen() {
       return;
     }
     setOnboarding(data);
-    setProfile(await getProfile());
     setCustomScenarios(await getCustomScenarios());
+    setFreeSessions(await getFreeSessionsRemaining());
     await refresh();
   }, [refresh]);
 
@@ -74,31 +56,22 @@ export function HomeScreen() {
     return [...customScenarios, ...defaults];
   }, [customScenarios]);
 
+  const focusLessons = useMemo(() => {
+    const first = {
+      ...DEFAULT_SCENARIOS[FIRST_LESSON.scenarioIndex]!,
+      id: 'lesson_focus_0',
+    };
+    return [first, ...scenarios.filter((s) => s.id !== first.id)].slice(0, 5);
+  }, [scenarios]);
+
+  const activeLesson = focusLessons[lessonIndex] ?? focusLessons[0];
   const languageMeta = LANGUAGE_OPTIONS.find((l) => l.value === onboarding?.language);
 
-  const startScenario = async (scenario: Scenario) => {
+  const startLesson = async (scenario: Scenario) => {
     if (!onboarding) return;
     void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     await saveOnboarding({ ...onboarding, scenario });
     router.push('/session');
-  };
-
-  const saveCustom = async () => {
-    if (!customTitle.trim() || !customPrompt.trim() || !onboarding) return;
-    const scenario: Scenario = {
-      id: `custom_${Date.now()}`,
-      title: customTitle.trim(),
-      prompt: customPrompt.trim(),
-      isCustom: true,
-      icon: '✨',
-      difficulty: 'medium',
-    };
-    const list = await saveCustomScenario(scenario);
-    setCustomScenarios(list);
-    setCustomOpen(false);
-    setCustomTitle('');
-    setCustomPrompt('');
-    await startScenario(scenario);
   };
 
   const changeLanguage = async (value: OnboardingData['language']) => {
@@ -110,151 +83,68 @@ export function HomeScreen() {
     setLangOpen(false);
   };
 
-  if (!onboarding || !profile) {
+  if (!onboarding) {
     return <View style={styles.loading} />;
   }
 
   return (
     <View style={styles.root}>
-      <LinearGradient
-        colors={[colors.backgroundWarm, colors.background]}
-        style={StyleSheet.absoluteFill}
-      />
-      <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
+      <SafeAreaView style={styles.safe} edges={['top']}>
         <View style={styles.topBar}>
-          <Pressable style={styles.langSelector} onPress={() => setLangOpen(true)}>
+          <Pressable style={styles.langPill} onPress={() => setLangOpen(true)}>
             <Text style={styles.langFlag}>{languageMeta?.flag ?? '🌐'}</Text>
-            <Text style={styles.langName}>{languageMeta?.label ?? onboarding.language}</Text>
-            <Text style={styles.chevron}>▾</Text>
+            <Text style={styles.langLevel}>L1</Text>
           </Pressable>
 
-          <View style={styles.topRight}>
-            <StreakPill streak={streak} />
-            <Pressable
-              style={styles.iconBtn}
-              onPress={() => setLeaderboardOpen(true)}
-              hitSlop={8}
-            >
-              <Text style={styles.iconBtnText}>🏆</Text>
-            </Pressable>
-            <Pressable
-              style={styles.avatarBtn}
-              onPress={() => router.push('/onboarding')}
-              hitSlop={8}
-            >
-              <Text style={styles.avatarText}>
-                {(profile.displayName || 'Y').charAt(0).toUpperCase()}
-              </Text>
-            </Pressable>
-          </View>
+          <StreakPill streak={streak} compact />
         </View>
 
-        <ScrollView
-          contentContainerStyle={styles.content}
-          showsVerticalScrollIndicator={false}
-        >
-          <Animated.View entering={FadeInDown.duration(420)}>
-            <Text style={styles.greeting}>Ready to speak?</Text>
-            <Text style={styles.greetingSub}>
-              {profile.xp} XP · Pick a scenario and jump in
+        <Pressable style={styles.progressToggle} onPress={() => setProgressOpen((v) => !v)}>
+          <Text style={styles.progressLabel}>My progress</Text>
+          <Text style={styles.progressChevron}>{progressOpen ? '▴' : '▾'}</Text>
+        </Pressable>
+
+        {progressOpen && (
+          <Animated.View entering={FadeInUp.duration(280)} style={styles.progressPanel}>
+            <Text style={styles.progressMeta}>
+              {onboarding.proficiency} · {onboarding.motivation} · {freeSessions} free sessions
             </Text>
           </Animated.View>
+        )}
 
-          <Pressable style={styles.customCta} onPress={() => setCustomOpen(true)}>
-            <Text style={styles.customCtaPlus}>+</Text>
-            <Text style={styles.customCtaText}>Custom Scenario</Text>
-          </Pressable>
-
-          <View style={styles.scenarioList}>
-            {scenarios.map((scenario, index) => (
-              <Animated.View
-                key={scenario.id}
-                entering={FadeInRight.delay(40 * index).duration(360)}
-              >
-                <Pressable
-                  style={styles.scenarioRow}
-                  onPress={() => void startScenario(scenario)}
-                >
-                  <View style={styles.scenarioIconWrap}>
-                    <Text style={styles.scenarioIcon}>{scenario.icon ?? '💬'}</Text>
-                  </View>
-                  <View style={styles.scenarioBody}>
-                    <Text style={styles.scenarioTitle}>{scenario.title}</Text>
-                    <Text style={styles.scenarioPrompt} numberOfLines={2}>
-                      {scenario.prompt}
-                    </Text>
-                  </View>
-                  {scenario.difficulty ? (
-                    <View
-                      style={[
-                        styles.diffTag,
-                        { backgroundColor: DIFFICULTY_COLOR[scenario.difficulty] + '22' },
-                      ]}
-                    >
-                      <Text
-                        style={[
-                          styles.diffText,
-                          { color: DIFFICULTY_COLOR[scenario.difficulty] },
-                        ]}
-                      >
-                        {scenario.difficulty}
-                      </Text>
-                    </View>
-                  ) : null}
-                </Pressable>
-              </Animated.View>
-            ))}
-          </View>
-        </ScrollView>
-      </SafeAreaView>
-
-      <LeaderboardModal
-        visible={leaderboardOpen}
-        onClose={() => setLeaderboardOpen(false)}
-        profile={profile}
-        streak={streak}
-      />
-
-      <Modal visible={customOpen} animationType="slide" transparent>
-        <View style={styles.modalBackdrop}>
-          <View style={styles.modalSheet}>
-            <Text style={styles.modalTitle}>Custom scenario</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="Title"
-              placeholderTextColor={colors.textLight}
-              value={customTitle}
-              onChangeText={setCustomTitle}
-            />
-            <TextInput
-              style={[styles.input, styles.textArea]}
-              placeholder="What should you practice? e.g. booking a train ticket"
-              placeholderTextColor={colors.textLight}
-              value={customPrompt}
-              onChangeText={setCustomPrompt}
-              multiline
-            />
+        <View style={styles.center}>
+          <Animated.View layout={LinearTransition.springify()} style={styles.focusCard}>
+            <WaveLogo size="md" animated />
+            <Text style={styles.lessonSubtitle}>{FIRST_LESSON.subtitle}</Text>
+            <Text style={styles.lessonTitle}>{activeLesson?.title ?? FIRST_LESSON.title}</Text>
             <Pressable
-              style={[
-                styles.primaryButton,
-                (!customTitle.trim() || !customPrompt.trim()) && styles.disabled,
-              ]}
-              disabled={!customTitle.trim() || !customPrompt.trim()}
-              onPress={() => void saveCustom()}
+              style={styles.startBtn}
+              onPress={() => activeLesson && void startLesson(activeLesson)}
             >
-              <Text style={styles.primaryButtonText}>Start practicing</Text>
+              <Text style={styles.startBtnText}>Start</Text>
             </Pressable>
-            <Pressable style={styles.cancelLink} onPress={() => setCustomOpen(false)}>
-              <Text style={styles.cancelText}>Cancel</Text>
-            </Pressable>
-          </View>
+            <View style={styles.dots}>
+              {focusLessons.map((_, i) => (
+                <Pressable key={i} onPress={() => setLessonIndex(i)} hitSlop={8}>
+                  <View style={[styles.dot, i === lessonIndex && styles.dotActive]} />
+                </Pressable>
+              ))}
+            </View>
+          </Animated.View>
         </View>
-      </Modal>
+
+        <MyPlanDrawer
+          onboarding={onboarding}
+          scenarios={scenarios}
+          freeSessionsRemaining={freeSessions}
+          onStartScenario={(s) => void startLesson(s)}
+        />
+      </SafeAreaView>
 
       <Modal visible={langOpen} animationType="fade" transparent>
         <Pressable style={styles.modalBackdrop} onPress={() => setLangOpen(false)}>
           <View style={styles.langSheet}>
-            <Text style={styles.modalTitle}>Target language</Text>
+            <Text style={styles.sheetTitle}>Language</Text>
             {LANGUAGE_OPTIONS.map((opt) => (
               <Pressable
                 key={opt.value}
@@ -265,10 +155,7 @@ export function HomeScreen() {
                 onPress={() => void changeLanguage(opt.value)}
               >
                 <Text style={styles.langFlag}>{opt.flag}</Text>
-                <View>
-                  <Text style={styles.langOptionLabel}>{opt.label}</Text>
-                  <Text style={styles.langOptionNative}>{opt.nativeLabel}</Text>
-                </View>
+                <Text style={styles.langOptionLabel}>{opt.label}</Text>
               </Pressable>
             ))}
           </View>
@@ -279,215 +166,143 @@ export function HomeScreen() {
 }
 
 const styles = StyleSheet.create({
-  root: { flex: 1 },
+  root: { flex: 1, backgroundColor: colors.canvas },
   safe: { flex: 1 },
-  loading: { flex: 1, backgroundColor: colors.background },
+  loading: { flex: 1, backgroundColor: colors.canvas },
   topBar: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: 20,
-    paddingTop: 4,
-    paddingBottom: 8,
+    paddingTop: 8,
   },
-  langSelector: {
+  langPill: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
-    backgroundColor: colors.surface,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  langFlag: { fontSize: 18 },
-  langName: {
-    ...typography.label,
-    color: colors.text,
-  },
-  chevron: {
-    color: colors.textMuted,
-    fontSize: 12,
-  },
-  topRight: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  iconBtn: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: colors.surface,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  iconBtnText: { fontSize: 16 },
-  avatarBtn: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: colors.primarySoft,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 1.5,
-    borderColor: colors.primaryLight,
-  },
-  avatarText: {
-    ...typography.label,
-    color: colors.primaryDark,
-  },
-  content: {
-    paddingHorizontal: 20,
-    paddingBottom: 40,
-  },
-  greeting: {
-    ...typography.display,
-    color: colors.text,
-    marginTop: 8,
-  },
-  greetingSub: {
-    ...typography.caption,
-    color: colors.textMuted,
-    marginTop: 4,
-    marginBottom: 20,
-  },
-  customCta: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-    backgroundColor: colors.primary,
-    borderRadius: 16,
-    paddingVertical: 15,
-    marginBottom: 20,
-  },
-  customCtaPlus: {
-    color: '#fff',
-    fontSize: 22,
-    fontWeight: '600',
-    marginTop: -2,
-  },
-  customCtaText: {
-    ...typography.label,
-    color: '#fff',
-    fontSize: 15,
-  },
-  scenarioList: { gap: 10 },
-  scenarioRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    backgroundColor: colors.surface,
-    borderRadius: 18,
-    padding: 14,
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  scenarioIconWrap: {
-    width: 48,
-    height: 48,
-    borderRadius: 14,
     backgroundColor: colors.surfaceMuted,
-    alignItems: 'center',
-    justifyContent: 'center',
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 20,
   },
-  scenarioIcon: { fontSize: 22 },
-  scenarioBody: { flex: 1 },
-  scenarioTitle: {
-    ...typography.subtitle,
+  langFlag: { fontSize: 16 },
+  langLevel: {
+    ...typography.label,
     color: colors.text,
+    fontWeight: '700',
   },
-  scenarioPrompt: {
-    ...typography.caption,
-    color: colors.textMuted,
+  progressToggle: {
+    alignItems: 'center',
+    paddingVertical: 8,
+  },
+  progressLabel: {
+    ...typography.label,
+    color: colors.pingoBlue,
+  },
+  progressChevron: {
+    color: colors.pingoBlue,
+    fontSize: 10,
     marginTop: 2,
   },
-  diffTag: {
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 8,
+  progressPanel: {
+    marginHorizontal: 20,
+    backgroundColor: colors.surface,
+    borderRadius: 16,
+    padding: 14,
+    marginBottom: 8,
+    borderWidth: 1,
+    borderColor: colors.border,
   },
-  diffText: {
-    ...typography.tiny,
+  progressMeta: {
+    ...typography.caption,
+    color: colors.textMuted,
+    textAlign: 'center',
     textTransform: 'capitalize',
-    fontWeight: '700',
+  },
+  center: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 28,
+  },
+  focusCard: {
+    alignItems: 'center',
+    width: '100%',
+    gap: 12,
+  },
+  lessonSubtitle: {
+    ...typography.caption,
+    color: colors.textMuted,
+    marginTop: 20,
+  },
+  lessonTitle: {
+    ...typography.hero,
+    color: colors.text,
+    textAlign: 'center',
+    lineHeight: 44,
+  },
+  startBtn: {
+    backgroundColor: colors.pingoBlue,
+    borderRadius: 28,
+    paddingVertical: 16,
+    paddingHorizontal: 48,
+    marginTop: 12,
+    shadowColor: colors.pingoBlue,
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.25,
+    shadowRadius: 12,
+    elevation: 4,
+  },
+  startBtnText: {
+    ...typography.label,
+    color: '#fff',
+    fontSize: 17,
+  },
+  dots: {
+    flexDirection: 'row',
+    gap: 8,
+    marginTop: 16,
+    alignItems: 'center',
+  },
+  dot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: colors.border,
+  },
+  dotActive: {
+    width: 22,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: colors.pingoBlue,
   },
   modalBackdrop: {
     flex: 1,
     backgroundColor: colors.overlay,
-    justifyContent: 'flex-end',
-  },
-  modalSheet: {
-    backgroundColor: colors.surface,
-    borderTopLeftRadius: 28,
-    borderTopRightRadius: 28,
+    justifyContent: 'center',
     padding: 24,
-    paddingBottom: 36,
   },
   langSheet: {
     backgroundColor: colors.surface,
-    margin: 24,
-    marginTop: 'auto',
-    marginBottom: 'auto',
     borderRadius: 24,
     padding: 20,
   },
-  modalTitle: {
+  sheetTitle: {
     ...typography.title,
-    color: colors.text,
-    marginBottom: 16,
-  },
-  input: {
-    backgroundColor: colors.background,
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: colors.border,
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    ...typography.body,
     color: colors.text,
     marginBottom: 12,
   },
-  textArea: {
-    minHeight: 100,
-    textAlignVertical: 'top',
-  },
-  primaryButton: {
-    backgroundColor: colors.primary,
-    borderRadius: 16,
-    paddingVertical: 16,
-    alignItems: 'center',
-    marginTop: 4,
-  },
-  primaryButtonText: {
-    ...typography.label,
-    color: '#fff',
-    fontSize: 16,
-  },
-  disabled: { opacity: 0.45 },
-  cancelLink: { alignItems: 'center', paddingVertical: 14 },
-  cancelText: { ...typography.label, color: colors.textMuted },
   langOption: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
     paddingVertical: 12,
-    paddingHorizontal: 10,
+    paddingHorizontal: 8,
     borderRadius: 12,
   },
-  langOptionActive: {
-    backgroundColor: colors.primarySoft,
-  },
+  langOptionActive: { backgroundColor: '#EBF3FE' },
   langOptionLabel: {
     ...typography.subtitle,
     color: colors.text,
-  },
-  langOptionNative: {
-    ...typography.tiny,
-    color: colors.textMuted,
   },
 });
