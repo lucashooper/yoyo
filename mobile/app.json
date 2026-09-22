@@ -7,7 +7,6 @@
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
     "scheme": "nobi",
-    "newArchEnabled": true,
     "ios": {
       "supportsTablet": true,
       "infoPlist": {
@@ -21,7 +20,9 @@
         "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
       },
-      "permissions": ["RECORD_AUDIO"],
+      "permissions": [
+        "RECORD_AUDIO"
+      ],
       "predictiveBackGestureEnabled": false
     },
     "web": {
@@ -32,11 +33,12 @@
       "expo-router",
       "expo-secure-store",
       [
-        "expo-av",
+        "expo-audio",
         {
           "microphonePermission": "Nobi needs microphone access for voice conversations."
         }
-      ]
-    ],
+      ],
+      "expo-asset"
+    ]
   }
 }

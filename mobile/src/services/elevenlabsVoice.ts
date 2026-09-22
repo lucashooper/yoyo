@@ -1,4 +1,14 @@
-import { Audio, type AVPlaybackStatus } from 'expo-av';
+import {
+  AudioModule,
+  createAudioPlayer,
+  RecordingPresets,
+  requestRecordingPermissionsAsync,
+  setAudioModeAsync,
+  type AudioPlayer,
+  type AudioRecorder,
+  type AudioStatus,
+} from 'expo-audio';
+import * as FileSystem from 'expo-file-system/legacy';
 import type { GrammarCorrection, SupportedLanguage, TranscriptEntry, VoiceSessionState } from '../types';
 import { arrayBufferToBase64, decodeBase64ToArrayBuffer } from './audioEncoding';
 import { detectCorrection } from './corrections';
@@ -20,6 +30,11 @@ const VAD_SPEECH_THRESHOLD = 0.22;
 const VAD_MIN_SPEECH_MS = 280;
 const VAD_SILENCE_MS = 750;
 const VAD_COOLDOWN_AFTER_TTS_MS = 900;
+
+const RECORDING_OPTIONS = {
+  ...RecordingPresets.HIGH_QUALITY,
+  isMeteringEnabled: true,
+};
 
 const MOCK_RESPONSES: Record<SupportedLanguage, string[]> = {
   spanish: [
@@ -59,8 +74,8 @@ export interface VoiceSessionCallbacks {
 
 export class ElevenLabsVoiceService {
   private ws: WebSocket | null = null;
-  private recording: Audio.Recording | null = null;
-  private sound: Audio.Sound | null = null;
+  private recorder: AudioRecorder | null = null;
+  private player: AudioPlayer | null = null;
   private callbacks: VoiceSessionCallbacks;
   private language: SupportedLanguage;
   private scenarioPrompt: string;
@@ -96,6 +111,16 @@ export class ElevenLabsVoiceService {
     this.callbacks.onStateChange(state);
   }
 
+  private async configureAudioMode(): Promise<void> {
+    await setAudioModeAsync({
+      allowsRecording: true,
+      playsInSilentMode: true,
+      shouldPlayInBackground: false,
+      interruptionMode: 'duckOthers',
+      shouldRouteThroughEarpiece: false,
+    });
+  }
+
   async start(): Promise<void> {
     this.active = true;
     this.setState('connecting');
@@ -106,22 +131,17 @@ export class ElevenLabsVoiceService {
     });
 
     try {
-      const { granted } = await Audio.requestPermissionsAsync();
+      const { granted } = await requestRecordingPermissionsAsync();
       if (!granted) {
-        // Web / denied mic: still allow demo conversation so the UI stays usable
         logger.warn('voice', 'Microphone denied — continuing in demo mode');
-        this.callbacks.onError('Microphone unavailable — demo mode active. Tap to retry with mic.');
+        this.callbacks.onError(
+          'Microphone unavailable — demo mode active. Tap to retry with mic.',
+        );
         await this.startMockSession();
         return;
       }
 
-      await Audio.setAudioModeAsync({
-        allowsRecordingIOS: true,
-        playsInSilentModeIOS: true,
-        staysActiveInBackground: false,
-        shouldDuckAndroid: true,
-        playThroughEarpieceAndroid: false,
-      });
+      await this.configureAudioMode();
 
       if (isElevenLabsAgentConfigured) {
         await this.connectWebSocket();
@@ -193,7 +213,6 @@ export class ElevenLabsVoiceService {
     const cleaned = text.trim();
     if (!cleaned) return;
 
-    // Deduplicate phantom / repeated STT inserts
     const now = Date.now();
     if (
       cleaned === this.lastUserTranscript &&
@@ -231,9 +250,8 @@ export class ElevenLabsVoiceService {
       const type = message.type as string | undefined;
 
       if (type === 'user_transcript' && message.user_transcription_event) {
-        const evt = message.user_transcription_event as { user_transcript?: string };
-        const text = (evt.user_transcript ?? '').trim();
-        // Only accept STT when we recently detected real speech via VAD
+        const evt = message.user_transcription_event as { user_transcription?: string; user_transcript?: string };
+        const text = (evt.user_transcript ?? evt.user_transcription ?? '').trim();
         if (!this.hasDetectedUserSpeech && text.length < 3) {
           logger.debug('voice', 'Ignored phantom STT (no VAD speech)', text);
           return;
@@ -272,11 +290,7 @@ export class ElevenLabsVoiceService {
   private async startMockSession(): Promise<void> {
     this.ttsMode = false;
     this.setState('listening');
-    try {
-      await this.startRecording();
-    } catch (err) {
-      logger.warn('voice', 'Demo mode without live mic', err);
-    }
+    await this.startRecording();
     this.scheduleGreeting(false);
   }
 
@@ -284,15 +298,10 @@ export class ElevenLabsVoiceService {
     this.ttsMode = true;
     await this.resolveVoiceId();
     this.setState('listening');
-    try {
-      await this.startRecording();
-    } catch (err) {
-      logger.warn('voice', 'TTS mode without live mic', err);
-    }
+    await this.startRecording();
     this.scheduleGreeting(true);
   }
 
-  /** Greeting only — no phantom user transcripts until VAD fires */
   private scheduleGreeting(useTts: boolean) {
     setTimeout(() => {
       if (!this.active || this.mockPending) return;
@@ -330,7 +339,6 @@ export class ElevenLabsVoiceService {
     this.stopSpeakAmplitudeAnimation();
   }
 
-  /** After real user speech (VAD), generate a mock / TTS reply — never invent user text */
   private async respondAfterUserSpeech(useTts: boolean) {
     if (!this.active || this.mockPending || this.isPlayingAudio) return;
     this.mockPending = true;
@@ -443,26 +451,35 @@ export class ElevenLabsVoiceService {
     this.playbackGateUntil = Date.now() + VAD_COOLDOWN_AFTER_TTS_MS;
     this.speechStartedAt = null;
     this.lastSpeechAt = Date.now();
-    if (this.active && !this.meteringInterval && this.recording) {
+    if (this.active && !this.meteringInterval && this.recorder) {
       this.attachMetering();
     }
+  }
+
+  private normalizeMetering(metering: number): number {
+    // expo-audio returns dB on native (typically -160…0) or 0…1 on web
+    if (metering <= 1 && metering >= 0) return metering;
+    return Math.max(0, Math.min(1, (metering + 60) / 60));
   }
 
   private attachMetering() {
     if (this.meteringInterval) clearInterval(this.meteringInterval);
 
-    this.meteringInterval = setInterval(async () => {
-      if (!this.recording || !this.active || this.isPlayingAudio) return;
+    this.meteringInterval = setInterval(() => {
+      if (!this.recorder || !this.active || this.isPlayingAudio) return;
       if (Date.now() < this.playbackGateUntil) {
         this.callbacks.onAmplitude(0);
         return;
       }
 
       try {
-        const status = await this.recording.getStatusAsync();
-        if (!status.isRecording || status.metering == null) return;
+        const status = this.recorder.getStatus();
+        if (!status.isRecording) return;
 
-        const normalized = Math.max(0, Math.min(1, (status.metering + 60) / 60));
+        const normalized =
+          status.metering != null
+            ? this.normalizeMetering(status.metering)
+            : 0;
         this.callbacks.onAmplitude(normalized);
 
         if (normalized >= VAD_SPEECH_THRESHOLD) {
@@ -490,18 +507,18 @@ export class ElevenLabsVoiceService {
 
   private async startRecording(): Promise<boolean> {
     try {
-      if (this.recording) {
-        await this.recording.stopAndUnloadAsync();
-        this.recording = null;
+      if (this.recorder) {
+        try {
+          await this.recorder.stop();
+        } catch {
+          // ignore
+        }
+        this.recorder = null;
       }
 
-      const recording = new Audio.Recording();
-      await recording.prepareToRecordAsync({
-        ...Audio.RecordingOptionsPresets.HIGH_QUALITY,
-        isMeteringEnabled: true,
-      });
-      await recording.startAsync();
-      this.recording = recording;
+      this.recorder = new AudioModule.AudioRecorder(RECORDING_OPTIONS);
+      await this.recorder.prepareToRecordAsync(RECORDING_OPTIONS);
+      this.recorder.record();
       this.lastSpeechAt = Date.now();
       this.speechStartedAt = null;
       this.attachMetering();
@@ -521,7 +538,7 @@ export class ElevenLabsVoiceService {
   }
 
   private async flushAudioChunk(): Promise<void> {
-    if (!this.recording || !this.active || this.isPlayingAudio) return;
+    if (!this.recorder || !this.active || this.isPlayingAudio) return;
 
     const spokeLongEnough =
       this.speechStartedAt != null &&
@@ -533,30 +550,28 @@ export class ElevenLabsVoiceService {
     }
 
     try {
-      const status = await this.recording.getStatusAsync();
+      const status = this.recorder.getStatus();
       if (!status.isRecording) return;
 
-      if (this.ws?.readyState === WebSocket.OPEN) {
-        const uri = this.recording.getURI();
-        if (uri) {
-          const response = await fetch(uri);
-          const buffer = await response.arrayBuffer();
-          if (buffer.byteLength > 0) {
-            this.ws.send(buffer);
-            logger.debug('voice', 'Sent audio chunk to STT', { bytes: buffer.byteLength });
-          }
+      const recordingUri = this.recorder.uri ?? status.url;
+
+      if (this.ws?.readyState === WebSocket.OPEN && recordingUri) {
+        const response = await fetch(recordingUri);
+        const buffer = await response.arrayBuffer();
+        if (buffer.byteLength > 0) {
+          this.ws.send(buffer);
+          logger.debug('voice', 'Sent audio chunk to STT', { bytes: buffer.byteLength });
         }
         this.setState('thinking');
       } else if (!isElevenLabsAgentConfigured) {
-        // Demo / TTS path: acknowledge real speech without inventing transcript text
         this.setState('thinking');
         logger.info('voice', 'VAD speech end — requesting demo reply');
         void this.respondAfterUserSpeech(this.ttsMode);
       }
 
       this.speechStartedAt = null;
-      await this.recording.stopAndUnloadAsync();
-      this.recording = null;
+      await this.recorder.stop();
+      this.recorder = null;
       if (this.active && !this.isPlayingAudio) {
         await this.startRecording();
       }
@@ -566,63 +581,61 @@ export class ElevenLabsVoiceService {
   }
 
   private async playAudioChunk(buffer: ArrayBuffer): Promise<void> {
+    let tempUri: string | null = null;
+
     try {
       await this.pauseMeteringForPlayback();
       this.setState('speaking');
       logger.info('voice', 'Playback start', { bytes: buffer.byteLength });
 
-      // Re-assert silent-switch override before each play (iOS)
-      await Audio.setAudioModeAsync({
-        allowsRecordingIOS: true,
-        playsInSilentModeIOS: true,
-        staysActiveInBackground: false,
-        shouldDuckAndroid: true,
-        playThroughEarpieceAndroid: false,
-      });
+      await this.configureAudioMode();
 
       const base64 = arrayBufferToBase64(buffer);
-      const uri = `data:audio/mpeg;base64,${base64}`;
-
-      if (this.sound) {
-        await this.sound.unloadAsync();
-        this.sound = null;
-      }
-
-      const { sound } = await Audio.Sound.createAsync(
-        { uri },
-        { shouldPlay: true, progressUpdateIntervalMillis: 80 },
-      );
-      this.sound = sound;
-
-      await new Promise<void>((resolve) => {
-        sound.setOnPlaybackStatusUpdate((status: AVPlaybackStatus) => {
-          if (!status.isLoaded) {
-            if (status.error) {
-              logger.error('voice', 'Playback load error', status.error);
-              this.callbacks.onError('Audio playback failed');
-              resolve();
-            }
-            return;
-          }
-
-          if (status.isPlaying) {
-            const duration = status.durationMillis ?? 1;
-            const position = status.positionMillis ?? 0;
-            const progress = Math.min(1, position / duration);
-            this.callbacks.onPlaybackProgress?.(progress);
-            const metering = status.volume ?? 0.75;
-            this.callbacks.onAmplitude(Math.min(1, 0.35 + metering * 0.45));
-          }
-
-          if (status.didJustFinish) {
-            logger.info('voice', 'Playback complete');
-            this.stopSpeakAmplitudeAnimation();
-            this.callbacks.onPlaybackProgress?.(1);
-            resolve();
-          }
-        });
+      tempUri = `${FileSystem.cacheDirectory}nobi-chunk-${Date.now()}.mp3`;
+      await FileSystem.writeAsStringAsync(tempUri, base64, {
+        encoding: FileSystem.EncodingType.Base64,
       });
 
+      if (this.player) {
+        this.player.remove();
+        this.player = null;
+      }
+
+      this.player = createAudioPlayer({ uri: tempUri }, { updateInterval: 80 });
+      this.player.play();
+
+      await new Promise<void>((resolve, reject) => {
+        const subscription = this.player!.addListener(
+          'playbackStatusUpdate',
+          (status: AudioStatus) => {
+            if (!status.isLoaded) {
+              if (status.error) {
+                subscription.remove();
+                reject(new Error(status.error));
+              }
+              return;
+            }
+
+            if (status.playing) {
+              const duration = status.duration || 1;
+              const progress = Math.min(1, status.currentTime / duration);
+              this.callbacks.onPlaybackProgress?.(progress);
+              this.callbacks.onAmplitude(
+                Math.min(1, 0.35 + (this.player?.volume ?? 0.75) * 0.45),
+              );
+            }
+
+            if (status.didJustFinish) {
+              subscription.remove();
+              resolve();
+            }
+          },
+        );
+      });
+
+      logger.info('voice', 'Playback complete');
+      this.stopSpeakAmplitudeAnimation();
+      this.callbacks.onPlaybackProgress?.(1);
       await this.resumeMeteringAfterPlayback();
       if (this.active) this.setState('listening');
     } catch (err) {
@@ -630,6 +643,14 @@ export class ElevenLabsVoiceService {
       this.stopSpeakAmplitudeAnimation();
       await this.resumeMeteringAfterPlayback();
       if (this.active) this.setState('listening');
+    } finally {
+      if (tempUri) {
+        try {
+          await FileSystem.deleteAsync(tempUri, { idempotent: true });
+        } catch {
+          // ignore cleanup errors
+        }
+      }
     }
   }
 
@@ -642,23 +663,23 @@ export class ElevenLabsVoiceService {
     this.meteringInterval = null;
     this.stopSpeakAmplitudeAnimation();
 
-    if (this.recording) {
+    if (this.recorder) {
       try {
-        await this.recording.stopAndUnloadAsync();
+        await this.recorder.stop();
       } catch {
         // ignore
       }
-      this.recording = null;
+      this.recorder = null;
     }
 
-    if (this.sound) {
+    if (this.player) {
       try {
-        await this.sound.stopAsync();
-        await this.sound.unloadAsync();
+        this.player.pause();
+        this.player.remove();
       } catch {
         // ignore
       }
-      this.sound = null;
+      this.player = null;
     }
 
     if (this.ws) {
