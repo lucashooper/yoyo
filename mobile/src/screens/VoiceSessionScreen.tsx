@@ -2,12 +2,13 @@ import * as Haptics from 'expo-haptics';
 import { router } from 'expo-router';
 import React, { useCallback, useEffect, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
-import Animated, { FadeInUp, LinearTransition } from 'react-native-reanimated';
+import Animated, { FadeInUp } from 'react-native-reanimated';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { ConnectionBanner, ErrorToast } from '../components/ErrorToast';
 import { ErrorBoundary } from '../components/ErrorBoundary';
 import { GrammarCorrectionCard } from '../components/GrammarCorrectionCard';
 import { HelpModal } from '../components/HelpModal';
+import { AudioWaveBar } from '../components/AudioWaveBar';
 import { NobiAvatar } from '../components/NobiAvatar';
 import { TranscriptDrawer } from '../components/TranscriptDrawer';
 import { useVoiceSession } from '../hooks/useVoiceSession';
@@ -129,9 +130,9 @@ function VoiceSessionInner({ onboarding }: { onboarding: OnboardingData }) {
           </Animated.View>
         )}
 
-        <Animated.View layout={LinearTransition.springify()} style={styles.center}>
-          <NobiAvatar state={state} amplitude={amplitude} size={220} />
-        </Animated.View>
+        <View style={styles.center}>
+          <NobiAvatar state={state} amplitude={amplitude} size={200} softAura />
+        </View>
 
         <View style={styles.footer}>
           <ConnectionBanner
@@ -140,6 +141,14 @@ function VoiceSessionInner({ onboarding }: { onboarding: OnboardingData }) {
             onReconnect={handleReconnect}
           />
           <GrammarCorrectionCard correction={correction} onDismiss={dismissCorrection} />
+          <AudioWaveBar
+            amplitude={amplitude}
+            active={
+              state === 'listening' ||
+              state === 'user_speaking' ||
+              state === 'speaking'
+            }
+          />
           <TranscriptDrawer entries={transcript} minimal />
         </View>
       </SafeAreaView>

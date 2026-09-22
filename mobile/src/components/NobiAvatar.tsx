@@ -17,13 +17,15 @@ interface NobiAvatarProps {
   state: VoiceSessionState;
   amplitude?: number;
   size?: number;
+  /** Softer / fewer aura rings (session view) */
+  softAura?: boolean;
 }
 
 /**
  * Soft companion avatar — organic mic aura / sound rings when speaking,
  * scale + tilt driven by audio state (no harsh purple pulse).
  */
-export function NobiAvatar({ state, amplitude = 0, size = 220 }: NobiAvatarProps) {
+export function NobiAvatar({ state, amplitude = 0, size = 220, softAura = false }: NobiAvatarProps) {
   const breathe = useSharedValue(0);
   const blink = useSharedValue(1);
   const shimmer = useSharedValue(0);
@@ -71,27 +73,28 @@ export function NobiAvatar({ state, amplitude = 0, size = 220 }: NobiAvatarProps
       { damping: 12, stiffness: 120 },
     );
 
+    const ringScale = softAura ? 0.35 : 1;
     if (state === 'speaking' || state === 'user_speaking') {
-      ringA.value = withTiming(0.55 + level * 0.45, { duration: 120 });
-      ringB.value = withTiming(0.35 + level * 0.4, { duration: 160 });
-      ringC.value = withTiming(0.2 + level * 0.35, { duration: 200 });
-    } else if (state === 'listening') {
+      ringA.value = withTiming((0.25 + level * 0.2) * ringScale, { duration: 120 });
+      ringB.value = withTiming((0.15 + level * 0.15) * ringScale, { duration: 160 });
+      ringC.value = withTiming(0, { duration: 200 });
+    } else if (state === 'listening' && !softAura) {
       ringA.value = withRepeat(
         withSequence(
-          withTiming(0.35, { duration: 1400, easing: Easing.inOut(Easing.sin) }),
-          withTiming(0.12, { duration: 1400, easing: Easing.inOut(Easing.sin) }),
+          withTiming(0.18, { duration: 1800, easing: Easing.inOut(Easing.sin) }),
+          withTiming(0.06, { duration: 1800, easing: Easing.inOut(Easing.sin) }),
         ),
         -1,
         false,
       );
-      ringB.value = withTiming(0.1, { duration: 300 });
-      ringC.value = withTiming(0.05, { duration: 300 });
+      ringB.value = withTiming(0, { duration: 300 });
+      ringC.value = withTiming(0, { duration: 300 });
     } else {
       ringA.value = withTiming(0, { duration: 280 });
       ringB.value = withTiming(0, { duration: 280 });
       ringC.value = withTiming(0, { duration: 280 });
     }
-  }, [amplitude, ringA, ringB, ringC, scaleBoost, state, tilt]);
+  }, [amplitude, ringA, ringB, ringC, scaleBoost, softAura, state, tilt]);
 
   useEffect(() => {
     if (state === 'thinking') {
@@ -142,39 +145,34 @@ export function NobiAvatar({ state, amplitude = 0, size = 220 }: NobiAvatarProps
   }));
 
   const ringAStyle = useAnimatedStyle(() => ({
-    opacity: ringA.value * 0.55,
-    transform: [{ scale: 1.05 + ringA.value * 0.22 }],
+    opacity: ringA.value * (softAura ? 0.25 : 0.45),
+    transform: [{ scale: 1.02 + ringA.value * 0.08 }],
   }));
   const ringBStyle = useAnimatedStyle(() => ({
-    opacity: ringB.value * 0.55,
-    transform: [{ scale: 1.18 + ringB.value * 0.22 }],
-  }));
-  const ringCStyle = useAnimatedStyle(() => ({
-    opacity: ringC.value * 0.55,
-    transform: [{ scale: 1.32 + ringC.value * 0.22 }],
+    opacity: ringB.value * 0.35,
+    transform: [{ scale: 1.08 + ringB.value * 0.1 }],
   }));
 
   return (
     <View style={[styles.wrapper, { width: size, height: size }]}>
-      <Animated.View
-        style={[
-          styles.auraRing,
-          ringCStyle,
-          { width: size * 1.05, height: size * 1.05, borderColor: colors.micAura },
-        ]}
-      />
-      <Animated.View
-        style={[
-          styles.auraRing,
-          ringBStyle,
-          { width: size * 0.98, height: size * 0.98, borderColor: colors.primarySoft },
-        ]}
-      />
+      {!softAura && (
+        <Animated.View
+          style={[
+            styles.auraRing,
+            ringBStyle,
+            { width: size * 0.98, height: size * 0.98, borderColor: colors.primarySoft },
+          ]}
+        />
+      )}
       <Animated.View
         style={[
           styles.auraFill,
           ringAStyle,
-          { width: size * 0.92, height: size * 0.92, backgroundColor: colors.micAura },
+          {
+            width: size * 0.92,
+            height: size * 0.92,
+            backgroundColor: softAura ? 'transparent' : colors.micAura,
+          },
         ]}
       />
       <Animated.View style={[styles.body, bodyStyle, { width: size * 0.82, height: size * 0.78 }]}>

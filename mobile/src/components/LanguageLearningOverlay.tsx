@@ -3,7 +3,7 @@ import * as Haptics from 'expo-haptics';
 import { router } from 'expo-router';
 import React from 'react';
 import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
-import Animated, { FadeIn, SlideInDown } from 'react-native-reanimated';
+import Animated, { FadeIn } from 'react-native-reanimated';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { colors } from '../theme/colors';
 import { typography } from '../theme/typography';
@@ -29,10 +29,10 @@ export function LanguageLearningOverlay({
   onSelectLanguage,
 }: LanguageLearningOverlayProps) {
   return (
-    <Modal visible={visible} animationType="fade" transparent onRequestClose={onClose}>
+    <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
       <View style={styles.backdrop}>
         <SafeAreaView style={styles.safe}>
-          <Animated.View entering={SlideInDown.springify().damping(18)} style={styles.sheet}>
+          <View style={styles.sheet}>
             <View style={styles.header}>
               <Text style={styles.title}>Learning</Text>
               <Pressable style={styles.closeBtn} onPress={onClose} hitSlop={12}>
@@ -87,7 +87,7 @@ export function LanguageLearningOverlay({
               <Text style={styles.settingsText}>Settings</Text>
               <Ionicons name="chevron-forward" size={20} color={colors.textMuted} />
             </Pressable>
-          </Animated.View>
+          </View>
         </SafeAreaView>
       </View>
     </Modal>

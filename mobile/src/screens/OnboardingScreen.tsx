@@ -13,20 +13,11 @@ import {
   TextInput,
   View,
 } from 'react-native';
-import Animated, {
-  FadeIn,
-  FadeInUp,
-  FadeOutDown,
-  LinearTransition,
-} from 'react-native-reanimated';
+import Animated, { FadeIn, FadeInUp, FadeOut } from 'react-native-reanimated';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import {
-  AgentVoiceHeader,
-  OnboardingAudioBar,
-} from '../components/AgentVoiceHeader';
+import { AgentVoiceHeader } from '../components/AgentVoiceHeader';
 import { SocialSignInButtons } from '../components/SocialSignInButtons';
 import { NobiAvatar } from '../components/NobiAvatar';
-import { WaveLogo } from '../components/WaveLogo';
 import { speakAgentLine, stopAgentSpeech, type SpeechController } from '../services/onboardingSpeech';
 import {
   getProfile,
@@ -54,14 +45,12 @@ type Step =
   | 'dialogue_name'
   | 'dialogue_proficiency'
   | 'dialogue_goal'
-  | 'plan_loading'
+  | 'plan_building'
+  | 'plan_reveal'
   | 'account';
 
-const SPRING_ENTER = FadeInUp.springify().damping(15).stiffness(110);
-const SPRING_EXIT = FadeOutDown.duration(200);
-const LAYOUT = LinearTransition.springify();
-
-const SPEEDS = [0.8, 1.0, 1.2, 1.4];
+const ENTER = FadeInUp.duration(320);
+const FADE = FadeIn.duration(240);
 
 function languageLabel(lang: SupportedLanguage): string {
   return LANGUAGE_OPTIONS.find((l) => l.value === lang)?.label ?? lang;
@@ -76,21 +65,14 @@ export function OnboardingScreen() {
     motivation: 'daily',
   });
   const [agentText, setAgentText] = useState('');
-  const [isPlaying, setIsPlaying] = useState(false);
-  const [playbackProgress, setPlaybackProgress] = useState(0);
-  const [speedIdx, setSpeedIdx] = useState(1);
   const [isListening, setIsListening] = useState(false);
-  const [loadingCardIdx, setLoadingCardIdx] = useState(0);
   const [loadingText, setLoadingText] = useState('Building your plan…');
+  const [loadingCardIdx, setLoadingCardIdx] = useState(0);
   const speechRef = useRef<SpeechController | null>(null);
-
-  const speed = SPEEDS[speedIdx] ?? 1.0;
 
   const go = useCallback((next: Step) => {
     void Haptics.selectionAsync();
     stopAgentSpeech();
-    setIsPlaying(false);
-    setPlaybackProgress(0);
     setStep(next);
   }, []);
 
@@ -98,17 +80,9 @@ export function OnboardingScreen() {
     (text: string, lang: SupportedLanguage = flow.language) => {
       stopAgentSpeech();
       setAgentText(text);
-      setIsPlaying(true);
-      setPlaybackProgress(0);
-      speechRef.current = speakAgentLine(
-        text,
-        lang,
-        speed,
-        setPlaybackProgress,
-        () => setIsPlaying(false),
-      );
+      speechRef.current = speakAgentLine(text, lang, 1, undefined, undefined);
     },
-    [flow.language, speed],
+    [flow.language],
   );
 
   useEffect(() => {
@@ -128,7 +102,7 @@ export function OnboardingScreen() {
   }, [step, flow.name, flow.language, playLine]);
 
   useEffect(() => {
-    if (step !== 'plan_loading') return;
+    if (step !== 'plan_building') return;
 
     const texts = [
       'Analyzing your answers…',
@@ -137,23 +111,19 @@ export function OnboardingScreen() {
       'Almost ready!',
     ];
     let textIdx = 0;
-    let cardIdx = 0;
 
     const textTimer = setInterval(() => {
       textIdx = (textIdx + 1) % texts.length;
       setLoadingText(texts[textIdx]!);
-    }, 1400);
+    }, 1100);
 
-    const cardTimer = setInterval(() => {
-      cardIdx = (cardIdx + 1) % PLAN_LOADING_CARDS.length;
-      setLoadingCardIdx(cardIdx);
-    }, 2200);
-
-    const done = setTimeout(() => go('account'), 6800);
+    const done = setTimeout(() => {
+      setLoadingCardIdx(0);
+      go('plan_reveal');
+    }, 4500);
 
     return () => {
       clearInterval(textTimer);
-      clearInterval(cardTimer);
       clearTimeout(done);
     };
   }, [step, go]);
@@ -188,19 +158,6 @@ export function OnboardingScreen() {
     router.replace('/home');
   };
 
-  const togglePlay = () => {
-    if (isPlaying) {
-      stopAgentSpeech();
-      setIsPlaying(false);
-    } else if (agentText) {
-      playLine(agentText);
-    }
-  };
-
-  const cycleSpeed = () => {
-    setSpeedIdx((i) => (i + 1) % SPEEDS.length);
-  };
-
   const canContinueName = flow.name.trim().length >= 1;
 
   const cardShadow = useMemo(
@@ -221,7 +178,10 @@ export function OnboardingScreen() {
           style={styles.flex}
           behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         >
-          {step !== 'splash' && step !== 'plan_loading' && step !== 'account' && (
+          {step !== 'splash' &&
+            step !== 'plan_building' &&
+            step !== 'plan_reveal' &&
+            step !== 'account' && (
             <AgentVoiceHeader
               onClose={() => go('splash')}
               showHelp={step.startsWith('dialogue')}
@@ -233,13 +193,9 @@ export function OnboardingScreen() {
             showsVerticalScrollIndicator={false}
             keyboardShouldPersistTaps="handled"
           >
-            <Animated.View layout={LAYOUT}>
+            <Animated.View>
               {step === 'splash' && (
-                <Animated.View
-                  entering={SPRING_ENTER}
-                  exiting={SPRING_EXIT}
-                  style={styles.splash}
-                >
+                <Animated.View entering={ENTER} exiting={FadeOut.duration(180)} style={styles.splash}>
                   <NobiAvatar state="idle" size={160} />
                   <Text style={styles.brand}>Nobi</Text>
                   <Pressable
@@ -255,19 +211,19 @@ export function OnboardingScreen() {
               )}
 
               {step === 'language' && (
-                <Animated.View entering={SPRING_ENTER} exiting={SPRING_EXIT}>
+                <Animated.View entering={ENTER} exiting={FadeOut.duration(180)}>
                   <Pressable style={styles.backCircle} onPress={() => go('splash')}>
                     <Ionicons name="chevron-back" size={20} color={colors.text} />
                   </Pressable>
                   <View style={styles.langHeader}>
-                    <WaveLogo size="sm" />
+                    <NobiAvatar state="idle" size={56} softAura />
                     <Text style={styles.langTitle}>Which language do you want to learn?</Text>
                   </View>
                   <View style={styles.langList}>
                     {LANGUAGE_OPTIONS.map((opt) => {
                       const active = flow.language === opt.value;
                       return (
-                        <Animated.View key={opt.value} layout={LAYOUT}>
+                        <View key={opt.value}>
                           <Pressable
                             style={[styles.langPill, active && styles.langPillActive, cardShadow]}
                             onPress={() => {
@@ -280,7 +236,7 @@ export function OnboardingScreen() {
                               {opt.label}
                             </Text>
                           </Pressable>
-                        </Animated.View>
+                        </View>
                       );
                     })}
                   </View>
@@ -296,7 +252,7 @@ export function OnboardingScreen() {
               {(step === 'dialogue_name' ||
                 step === 'dialogue_proficiency' ||
                 step === 'dialogue_goal') && (
-                <Animated.View entering={SPRING_ENTER} exiting={SPRING_EXIT} style={styles.dialogue}>
+                <Animated.View entering={ENTER} exiting={FadeOut.duration(180)} style={styles.dialogue}>
                   <Text style={styles.agentLine}>{agentText}</Text>
 
                   {step === 'dialogue_name' && (
@@ -323,7 +279,7 @@ export function OnboardingScreen() {
                         <Ionicons
                           name={isListening ? 'mic' : 'mic-outline'}
                           size={22}
-                          color={isListening ? '#fff' : colors.pingoBlue}
+                          color={isListening ? '#fff' : colors.primary}
                         />
                         <Text style={[styles.micLabel, isListening && styles.micLabelActive]}>
                           {isListening ? 'Listening…' : 'Tap to speak'}
@@ -382,7 +338,7 @@ export function OnboardingScreen() {
                             onPress={() => {
                               void Haptics.selectionAsync();
                               setFlow((f) => ({ ...f, motivation: opt.value }));
-                              setTimeout(() => go('plan_loading'), 280);
+                              setTimeout(() => go('plan_building'), 280);
                             }}
                           >
                             <Text style={styles.choiceIcon}>{opt.icon}</Text>
@@ -398,25 +354,24 @@ export function OnboardingScreen() {
                 </Animated.View>
               )}
 
-              {step === 'plan_loading' && (
-                <Animated.View entering={SPRING_ENTER} exiting={SPRING_EXIT} style={styles.loadingWrap}>
-                  <Pressable style={styles.backCircle} onPress={() => go('dialogue_goal')}>
-                    <Ionicons name="chevron-back" size={20} color={colors.text} />
-                  </Pressable>
-                  <View style={styles.loadingHeader}>
-                    <WaveLogo size="sm" />
-                  </View>
+              {step === 'plan_building' && (
+                <Animated.View entering={FADE} style={styles.buildingFull}>
+                  <NobiAvatar state="thinking" size={120} softAura />
+                  <ActivityIndicator size="large" color={colors.primary} style={{ marginTop: 32 }} />
+                  <Animated.Text entering={FADE} key={loadingText} style={styles.buildingText}>
+                    {loadingText}
+                  </Animated.Text>
+                </Animated.View>
+              )}
 
+              {step === 'plan_reveal' && (
+                <Animated.View entering={ENTER} style={styles.planReveal}>
+                  <NobiAvatar state="idle" size={64} softAura />
                   <Animated.View
                     key={loadingCardIdx}
-                    entering={FadeInUp.springify().damping(14).stiffness(100)}
+                    entering={FadeInUp.duration(360)}
                     style={[styles.planCard, cardShadow]}
                   >
-                    <View style={styles.planCardIcon}>
-                      <View style={[styles.dot, { backgroundColor: colors.pingoBlue }]} />
-                      <View style={[styles.dot, { backgroundColor: colors.pingoPink }]} />
-                      <View style={[styles.dot, { backgroundColor: colors.pingoYellow }]} />
-                    </View>
                     <Text style={styles.planCardTitle}>
                       Your {languageLabel(flow.language)} starting point
                     </Text>
@@ -424,30 +379,26 @@ export function OnboardingScreen() {
                       {PLAN_LOADING_CARDS[loadingCardIdx]?.body}
                     </Text>
                   </Animated.View>
-
                   <View style={styles.dotsRow}>
                     {PLAN_LOADING_CARDS.map((_, i) => (
-                      <View
-                        key={i}
-                        style={[styles.pageDot, i === loadingCardIdx && styles.pageDotActive]}
-                      />
+                      <Pressable key={i} onPress={() => setLoadingCardIdx(i)}>
+                        <View style={[styles.pageDot, i === loadingCardIdx && styles.pageDotActive]} />
+                      </Pressable>
                     ))}
                   </View>
-
-                  <ActivityIndicator size="large" color={colors.primary} style={{ marginTop: 20 }} />
-                  <Animated.Text entering={FadeIn} style={styles.loadingText}>
-                    {loadingText}
-                  </Animated.Text>
+                  <Pressable style={[styles.primaryPill, cardShadow]} onPress={() => go('account')}>
+                    <Text style={styles.primaryPillText}>Start learning</Text>
+                  </Pressable>
                 </Animated.View>
               )}
 
               {step === 'account' && (
-                <Animated.View entering={SPRING_ENTER} exiting={SPRING_EXIT} style={styles.account}>
-                  <Pressable style={styles.backCircle} onPress={() => go('plan_loading')}>
+                <Animated.View entering={ENTER} exiting={FadeOut.duration(180)} style={styles.account}>
+                  <Pressable style={styles.backCircle} onPress={() => go('plan_reveal')}>
                     <Ionicons name="chevron-back" size={20} color={colors.text} />
                   </Pressable>
                   <View style={styles.accountHeader}>
-                    <WaveLogo size="sm" />
+                    <NobiAvatar state="idle" size={64} softAura />
                     <Text style={styles.accountTitle}>Create an account</Text>
                   </View>
 
@@ -467,18 +418,6 @@ export function OnboardingScreen() {
             </Animated.View>
           </ScrollView>
 
-          {(step === 'dialogue_name' ||
-            step === 'dialogue_proficiency' ||
-            step === 'dialogue_goal') && (
-            <OnboardingAudioBar
-              isPlaying={isPlaying}
-              progress={playbackProgress}
-              speed={speed}
-              onTogglePlay={togglePlay}
-              onCycleSpeed={cycleSpeed}
-              statusText={isListening ? "I'm listening…" : undefined}
-            />
-          )}
         </KeyboardAvoidingView>
       </SafeAreaView>
     </View>
@@ -650,12 +589,26 @@ const styles = StyleSheet.create({
     ...typography.caption,
     color: colors.textMuted,
   },
-  loadingWrap: {
+  buildingFull: {
+    flexGrow: 1,
+    minHeight: 560,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 32,
+  },
+  buildingText: {
+    ...typography.subtitle,
+    color: colors.textMuted,
+    textAlign: 'center',
+    marginTop: 20,
+  },
+  planReveal: {
     flexGrow: 1,
     minHeight: 520,
     alignItems: 'center',
+    paddingTop: 24,
+    gap: 20,
   },
-  loadingHeader: { marginBottom: 28, marginTop: 8 },
   planCard: {
     backgroundColor: colors.surface,
     borderRadius: 24,

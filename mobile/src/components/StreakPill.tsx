@@ -14,7 +14,7 @@ export function StreakPill({ streak, compact = false, onPress }: StreakPillProps
   const content = (
     <>
       <Text style={styles.count}>{streak}</Text>
-      <StreakFlameIcon size={compact ? 18 : 20} />
+      <StreakFlameIcon size={compact ? 24 : 22} />
       {!compact && (
         <Text style={styles.text}>day{streak === 1 ? '' : 's'}</Text>
       )}

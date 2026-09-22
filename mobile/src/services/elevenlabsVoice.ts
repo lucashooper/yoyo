@@ -14,14 +14,15 @@ import { arrayBufferToBase64, decodeBase64ToArrayBuffer } from './audioEncoding'
 import { detectCorrection } from './corrections';
 import { humanizeError, logger } from './logger';
 import { env } from '../config/env';
+import { AgentAudioStream } from './agentAudioStream';
 import { getVoiceForLanguage } from './voiceService';
 
 export const isElevenLabsAgentConfigured = env.elevenLabs.isAgentMode;
 export const isElevenLabsTtsConfigured = env.elevenLabs.isTtsMode;
 export const isElevenLabsConfigured = isElevenLabsAgentConfigured;
 
-/** Strict VAD — ignore ambient noise / phantom spikes */
-const VAD_SPEECH_THRESHOLD = 0.22;
+/** VAD for UI feedback + gating phantom STT */
+const VAD_SPEECH_THRESHOLD = 0.12;
 const VAD_MIN_SPEECH_MS = 280;
 const VAD_SILENCE_MS = 750;
 const VAD_COOLDOWN_AFTER_TTS_MS = 900;
@@ -90,6 +91,12 @@ export class ElevenLabsVoiceService {
   private hasDetectedUserSpeech = false;
   private mockPending = false;
   private sessionState: VoiceSessionState = 'idle';
+  private agentStream: AgentAudioStream | null = null;
+  private conversationReady = false;
+  private lastInterruptId = 0;
+  private audioQueue: ArrayBuffer[] = [];
+  private processingAudioQueue = false;
+  private agentMode = false;
 
   constructor(
     language: SupportedLanguage,
@@ -179,10 +186,22 @@ export class ElevenLabsVoiceService {
       const url = `wss://api.elevenlabs.io/v1/convai/conversation?agent_id=${encodeURIComponent(env.elevenLabs.agentId)}`;
       this.ws = new WebSocket(url);
 
+      this.agentMode = true;
+      this.conversationReady = false;
+
       this.ws.onopen = async () => {
-        logger.info('voice', 'WebSocket connected');
+        logger.info('voice', 'WebSocket connected — sending initiation');
+        this.ws?.send(
+          JSON.stringify({
+            type: 'conversation_initiation_client_data',
+            dynamic_variables: {
+              language: this.language,
+              scenario: this.scenarioPrompt,
+            },
+          }),
+        );
         this.setState('listening');
-        await this.startRecording();
+        await this.startAgentStream();
       };
 
       this.ws.onmessage = (event) => {
@@ -239,7 +258,7 @@ export class ElevenLabsVoiceService {
   private handleWebSocketMessage(data: unknown): void {
     if (typeof data !== 'string') {
       if (data instanceof ArrayBuffer) {
-        void this.playAudioChunk(data);
+        this.enqueueAgentAudio(data);
       }
       return;
     }
@@ -248,11 +267,30 @@ export class ElevenLabsVoiceService {
       const message = JSON.parse(data) as Record<string, unknown>;
       const type = message.type as string | undefined;
 
-      if (type === 'user_transcript' && message.user_transcription_event) {
-        const evt = message.user_transcription_event as { user_transcription?: string; user_transcript?: string };
-        const text = (evt.user_transcript ?? evt.user_transcription ?? '').trim();
-        if (!this.hasDetectedUserSpeech && text.length < 3) {
-          logger.debug('voice', 'Ignored phantom STT (no VAD speech)', text);
+      if (type === 'conversation_initiation_metadata') {
+        this.conversationReady = true;
+        logger.info('voice', 'Agent conversation ready');
+        return;
+      }
+
+      if (type === 'ping') {
+        const ping = message.ping_event as { event_id?: number } | undefined;
+        if (ping?.event_id != null) {
+          this.ws?.send(JSON.stringify({ type: 'pong', event_id: ping.event_id }));
+        }
+        return;
+      }
+
+      if (type === 'user_transcript') {
+        const evt = (message.user_transcription_event ??
+          message.user_transcript_event) as {
+          user_transcription?: string;
+          user_transcript?: string;
+        } | undefined;
+        const text = (evt?.user_transcript ?? evt?.user_transcription ?? '').trim();
+        if (!text) return;
+        if (!this.hasDetectedUserSpeech && text.length < 2) {
+          logger.debug('voice', 'Ignored phantom STT', text);
           return;
         }
         this.emitUserTranscript(text);
@@ -272,18 +310,89 @@ export class ElevenLabsVoiceService {
       }
 
       if (type === 'audio' && message.audio_event) {
-        const evt = message.audio_event as { audio_base_64?: string };
+        const evt = message.audio_event as {
+          audio_base_64?: string;
+          event_id?: number;
+        };
+        if (evt.event_id != null && evt.event_id <= this.lastInterruptId) return;
         if (evt.audio_base_64) {
-          void this.playAudioChunk(decodeBase64ToArrayBuffer(evt.audio_base_64));
+          this.enqueueAgentAudio(decodeBase64ToArrayBuffer(evt.audio_base_64));
         }
       }
 
-      if (type === 'interruption' || type === 'agent_response_correction') {
+      if (type === 'interruption') {
+        const evt = message.interruption_event as { event_id?: number } | undefined;
+        if (evt?.event_id != null) this.lastInterruptId = evt.event_id;
+        this.clearAudioQueue();
+        this.setState('listening');
+      }
+
+      if (type === 'agent_response_correction') {
         this.setState('listening');
       }
     } catch {
-      // Binary or non-JSON payloads handled elsewhere
+      // non-JSON
     }
+  }
+
+  private enqueueAgentAudio(buffer: ArrayBuffer): void {
+    if (!buffer.byteLength) return;
+    this.audioQueue.push(buffer);
+    if (!this.processingAudioQueue) void this.processAgentAudioQueue();
+  }
+
+  private clearAudioQueue(): void {
+    this.audioQueue = [];
+    if (this.player) {
+      try {
+        this.player.pause();
+        this.player.remove();
+      } catch {
+        // ignore
+      }
+      this.player = null;
+    }
+    this.isPlayingAudio = false;
+    this.processingAudioQueue = false;
+  }
+
+  private async processAgentAudioQueue(): Promise<void> {
+    this.processingAudioQueue = true;
+    while (this.audioQueue.length > 0 && this.active) {
+      const chunk = this.audioQueue.shift();
+      if (!chunk) break;
+      await this.playAudioChunk(chunk);
+    }
+    this.processingAudioQueue = false;
+  }
+
+  private async startAgentStream(): Promise<void> {
+    this.agentStream = new AgentAudioStream();
+    await this.agentStream.start(({ base64, amplitude }) => {
+      if (!this.active || this.isPlayingAudio || !this.conversationReady) return;
+      if (this.ws?.readyState !== WebSocket.OPEN) return;
+
+      this.callbacks.onAmplitude(amplitude);
+
+      if (amplitude >= VAD_SPEECH_THRESHOLD) {
+        if (this.speechStartedAt == null) this.speechStartedAt = Date.now();
+        this.lastSpeechAt = Date.now();
+        this.hasDetectedUserSpeech = true;
+        if (this.sessionState !== 'speaking') this.setState('user_speaking');
+      } else if (
+        this.speechStartedAt != null &&
+        Date.now() - this.lastSpeechAt > VAD_SILENCE_MS
+      ) {
+        this.speechStartedAt = null;
+        if (this.sessionState === 'user_speaking') this.setState('listening');
+      }
+
+      try {
+        this.ws.send(JSON.stringify({ user_audio_chunk: base64 }));
+      } catch (err) {
+        logger.warn('voice', 'Failed to send audio chunk', err);
+      }
+    });
   }
 
   private async startMockSession(): Promise<void> {
@@ -537,6 +646,7 @@ export class ElevenLabsVoiceService {
   }
 
   private async flushAudioChunk(): Promise<void> {
+    if (this.agentMode) return;
     if (!this.recorder || !this.active || this.isPlayingAudio) return;
 
     const spokeLongEnough =
@@ -554,14 +664,8 @@ export class ElevenLabsVoiceService {
 
       const recordingUri = this.recorder.uri ?? status.url;
 
-      if (this.ws?.readyState === WebSocket.OPEN && recordingUri) {
-        const response = await fetch(recordingUri);
-        const buffer = await response.arrayBuffer();
-        if (buffer.byteLength > 0) {
-          this.ws.send(buffer);
-          logger.debug('voice', 'Sent audio chunk to STT', { bytes: buffer.byteLength });
-        }
-        this.setState('thinking');
+      if (this.agentMode) {
+        return;
       } else if (!isElevenLabsAgentConfigured) {
         this.setState('thinking');
         logger.info('voice', 'VAD speech end — requesting demo reply');
@@ -685,6 +789,12 @@ export class ElevenLabsVoiceService {
       this.ws.close();
       this.ws = null;
     }
+
+    await this.agentStream?.stop();
+    this.agentStream = null;
+    this.agentMode = false;
+    this.conversationReady = false;
+    this.clearAudioQueue();
 
     this.isPlayingAudio = false;
     this.setState('idle');
