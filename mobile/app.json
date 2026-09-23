@@ -47,10 +47,7 @@
       "expo-asset"
     ],
     "extra": {
-      "router": {},
-      "eas": {
-        "projectId": "0af280e2-1c44-4d51-991c-faf950361129"
-      }
+      "router": {}
     },
     "owner": "crupid4"
   }
