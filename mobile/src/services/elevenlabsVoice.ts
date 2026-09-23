@@ -41,16 +41,9 @@ const RECORDING_OPTIONS = {
   isMeteringEnabled: true,
 };
 
-function resolveInitiationOverrideMode(language: SupportedLanguage): InitiationOverrideMode {
-  // Agent Security often blocks language override — send voice_id only for Russian.
-  if (language === 'russian' && env.elevenLabs.hasVoiceId) {
-    return 'voice-only';
-  }
+function resolveInitiationOverrideMode(_language: SupportedLanguage): InitiationOverrideMode {
+  // Let ElevenLabs dashboard voice mapping handle TTS — no voice_id override.
   return 'none';
-}
-
-function sendsVoiceOverride(mode: InitiationOverrideMode): boolean {
-  return mode === 'voice-only' || mode === 'language-and-voice';
 }
 
 function isOverrideRejection(reason: string): boolean {
@@ -257,9 +250,7 @@ export class ElevenLabsVoiceService {
         dynamicVariables: initiation.dynamic_variables,
         overrideMode,
         agentLanguage: initiation.conversation_config_override?.agent?.language,
-        voiceId: sendsVoiceOverride(overrideMode)
-          ? `${voice.voiceId.slice(0, 8)}…`
-          : '(dashboard default)',
+        voiceId: '(dashboard default)',
         voiceName: voice.name,
       });
       if (this.ws?.readyState !== WebSocket.OPEN) {
@@ -285,9 +276,9 @@ export class ElevenLabsVoiceService {
       return 'language-only';
     }
     if (lower.includes('language') && mode === 'language-only') {
-      return this.language === 'russian' && env.elevenLabs.hasVoiceId ? 'voice-only' : 'none';
+      return 'none';
     }
-    if (lower.includes('voice_id') && (mode === 'voice-only' || mode === 'language-only')) {
+    if (lower.includes('voice_id') && mode === 'language-only') {
       return 'none';
     }
     if ((lower.includes('language') || lower.includes('voice_id')) && mode !== 'none') {
