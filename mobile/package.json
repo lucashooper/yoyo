@@ -9,6 +9,7 @@
     "ios": "expo start --ios",
     "web": "expo start --web",
     "typecheck": "tsc --noEmit",
+    "verify:voice-init": "node scripts/verify-agent-initiation.mjs",
     "export": "expo export --platform web"
   },
   "dependencies": {

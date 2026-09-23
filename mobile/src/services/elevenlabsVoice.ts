@@ -22,6 +22,7 @@ import { env } from '../config/env';
 import { AgentAudioStream } from './agentAudioStream';
 import {
   buildAgentInitiationPayload,
+  getLanguageIso6391,
   type InitiationOverrideMode,
 } from './agentDynamicVariables';
 import { getVoiceForLanguage } from './voiceService';
@@ -42,8 +43,8 @@ const RECORDING_OPTIONS = {
 };
 
 function resolveInitiationOverrideMode(_language: SupportedLanguage): InitiationOverrideMode {
-  // Let ElevenLabs dashboard voice mapping handle TTS — no voice_id override.
-  return 'none';
+  // ISO 639-1 agent.language only — dashboard maps voices per language code.
+  return 'language-only';
 }
 
 function isOverrideRejection(reason: string): boolean {
@@ -152,6 +153,8 @@ export class ElevenLabsVoiceService {
     this.setState('connecting');
     logger.info('voice', 'Starting voice session', {
       language: this.language,
+      iso6391: getLanguageIso6391(this.language),
+      initiationOverride: this.initiationOverrideMode,
       agent: isElevenLabsAgentConfigured,
       tts: isElevenLabsTtsConfigured,
     });
@@ -239,20 +242,29 @@ export class ElevenLabsVoiceService {
     overrideMode: InitiationOverrideMode = this.initiationOverrideMode,
   ): Promise<void> {
     try {
-      const voice = await getVoiceForLanguage(this.language);
+      const iso6391 = getLanguageIso6391(this.language);
       const initiation = buildAgentInitiationPayload(
         this.language,
         this.scenarioPrompt,
-        voice.voiceId,
+        '',
         overrideMode,
       );
+      const hasTtsOverride = Boolean(initiation.conversation_config_override?.tts?.voice_id);
       logger.info('voice', 'WebSocket connected — sending initiation', {
+        appLanguage: this.language,
+        iso6391,
         dynamicVariables: initiation.dynamic_variables,
         overrideMode,
         agentLanguage: initiation.conversation_config_override?.agent?.language,
-        voiceId: '(dashboard default)',
-        voiceName: voice.name,
+        hasTtsOverride,
+        voiceMapping: hasTtsOverride ? 'client override' : 'dashboard native',
       });
+      if (initiation.conversation_config_override?.agent?.language !== iso6391) {
+        logger.warn('voice', 'Initiation ISO mismatch', {
+          expected: iso6391,
+          actual: initiation.conversation_config_override?.agent?.language,
+        });
+      }
       if (this.ws?.readyState !== WebSocket.OPEN) {
         logger.warn('voice', 'WebSocket closed before initiation could be sent');
         return;

@@ -1,13 +1,18 @@
 import { LANGUAGE_OPTIONS, type SupportedLanguage } from '../types';
 
-const LANGUAGE_ISO: Record<SupportedLanguage, string> = {
-  spanish: 'es',
-  french: 'fr',
-  english: 'en',
-  japanese: 'ja',
-  german: 'de',
+export const LANGUAGE_ISO: Record<SupportedLanguage, string> = {
   russian: 'ru',
+  spanish: 'es',
+  german: 'de',
+  french: 'fr',
+  japanese: 'ja',
+  english: 'en',
 };
+
+/** ISO 639-1 code for ElevenLabs agent.language override */
+export function getLanguageIso6391(language: SupportedLanguage): string {
+  return LANGUAGE_ISO[language];
+}
 
 function languageLabel(lang: SupportedLanguage): string {
   return LANGUAGE_OPTIONS.find((l) => l.value === lang)?.label ?? lang;
@@ -55,7 +60,7 @@ export function buildAgentInitiationPayload(
 
   if (overrideMode === 'language-only' || overrideMode === 'language-and-voice') {
     payload.conversation_config_override.agent = {
-      language: LANGUAGE_ISO[language],
+      language: getLanguageIso6391(language),
     };
   }
 
