@@ -1,62 +1,72 @@
 import React from 'react';
-import Svg, { Circle, Ellipse, G, Rect } from 'react-native-svg';
-
-const HEAD = '#5CBAD6';
-const INK = '#1A1F2C';
-const TONGUE = '#FFB8A8';
-const BLUSH = '#FFB8A8';
+import Svg, { Circle, Defs, Ellipse, G, LinearGradient, Path, Stop } from 'react-native-svg';
 
 interface NobiMascotSvgProps {
   size?: number;
-  /** 0 = closed smile, 1 = wide open (voice session) */
-  mouthOpen?: number;
+  /** 0–1 subtle energy level for hook emphasis (voice session) */
+  energy?: number;
 }
 
 /**
- * Single unified Nobi face — head, eyes, mouth, tongue in one SVG layer.
- * Avoids misaligned RN View cheeks that looked like pink artifacts.
+ * Minimal abstract Nobi — Grok/Pingo-inspired geometric mascot.
+ * Single SVG layer: gradient orb, soft eyes, floating hook arcs. No mouth.
  */
-export function NobiMascotSvg({ size = 180, mouthOpen = 0.35 }: NobiMascotSvgProps) {
-  const open = Math.max(0, Math.min(1, mouthOpen));
-  const mouthH = 8 + open * 18;
-  const mouthW = 34 + open * 10;
-  const mouthX = 60 - mouthW / 2;
-  const mouthY = 68 - (mouthH - 10) / 2;
-  const tongueW = mouthW * 0.55;
-  const tongueH = Math.max(6, mouthH * 0.55);
+export function NobiMascotSvg({ size = 180, energy = 0 }: NobiMascotSvgProps) {
+  const pulse = Math.max(0, Math.min(1, energy));
+  const hookOpacity = 0.45 + pulse * 0.35;
 
   return (
     <Svg width={size} height={size} viewBox="0 0 120 120">
-      <Circle cx={60} cy={60} r={56} fill={HEAD} stroke="rgba(0,0,0,0.06)" strokeWidth={1} />
+      <Defs>
+        <LinearGradient id="nobiOrb" x1="30" y1="18" x2="90" y2="108" gradientUnits="userSpaceOnUse">
+          <Stop offset="0" stopColor="#7DD3EC" />
+          <Stop offset="0.45" stopColor="#5CBAD6" />
+          <Stop offset="1" stopColor="#3A9DBE" />
+        </LinearGradient>
+        <LinearGradient id="nobiHook" x1="0" y1="0" x2="120" y2="0" gradientUnits="userSpaceOnUse">
+          <Stop offset="0" stopColor="#007AFF" stopOpacity="0.15" />
+          <Stop offset="0.5" stopColor="#5CBAD6" stopOpacity="0.55" />
+          <Stop offset="1" stopColor="#007AFF" stopOpacity="0.15" />
+        </LinearGradient>
+        <LinearGradient id="nobiSheen" x1="40" y1="30" x2="70" y2="70" gradientUnits="userSpaceOnUse">
+          <Stop offset="0" stopColor="#FFFFFF" stopOpacity="0.45" />
+          <Stop offset="1" stopColor="#FFFFFF" stopOpacity="0" />
+        </LinearGradient>
+      </Defs>
 
-      {/* Subtle blush — low on cheeks, not near eyes */}
-      <Ellipse cx={34} cy={72} rx={9} ry={5} fill={BLUSH} opacity={0.35} />
-      <Ellipse cx={86} cy={72} rx={9} ry={5} fill={BLUSH} opacity={0.35} />
-
-      {/* Eyes */}
-      <Ellipse cx={44} cy={46} rx={8} ry={10} fill={INK} />
-      <Ellipse cx={76} cy={46} rx={8} ry={10} fill={INK} />
-
-      {/* Mouth cavity */}
-      <Rect
-        x={mouthX}
-        y={mouthY}
-        width={mouthW}
-        height={mouthH}
-        rx={mouthH / 2}
-        fill={INK}
-      />
-
-      {/* Tongue inside mouth */}
-      {open > 0.15 && (
-        <Ellipse
-          cx={60}
-          cy={mouthY + mouthH * 0.62}
-          rx={tongueW / 2}
-          ry={tongueH / 2}
-          fill={TONGUE}
+      {/* Floating hook arcs */}
+      <G opacity={hookOpacity}>
+        <Path
+          d="M 22 38 C 38 18, 82 18, 98 38"
+          stroke="url(#nobiHook)"
+          strokeWidth={2.8}
+          fill="none"
+          strokeLinecap="round"
         />
-      )}
+        <Path
+          d="M 16 78 C 36 98, 84 98, 104 78"
+          stroke="url(#nobiHook)"
+          strokeWidth={2.2}
+          fill="none"
+          strokeLinecap="round"
+          opacity={0.75}
+        />
+      </G>
+
+      {/* Accent orbs — minimalist Pingo geometry */}
+      <Circle cx={24} cy={58} r={4.5} fill="#007AFF" opacity={0.22 + pulse * 0.12} />
+      <Circle cx={96} cy={52} r={3.5} fill="#FFD60A" opacity={0.28 + pulse * 0.1} />
+      <Ellipse cx={98} cy={78} rx={3} ry={5.5} fill="#FF6482" opacity={0.24 + pulse * 0.1} />
+
+      {/* Main orb */}
+      <Circle cx={60} cy={62} r={40} fill="url(#nobiOrb)" />
+      <Ellipse cx={46} cy={48} rx={16} ry={11} fill="url(#nobiSheen)" />
+
+      {/* Soft eyes */}
+      <Circle cx={48} cy={60} r={4.2} fill="#1A1F2C" opacity={0.82} />
+      <Circle cx={72} cy={60} r={4.2} fill="#1A1F2C" opacity={0.82} />
+      <Circle cx={49.2} cy={58.8} r={1.3} fill="#FFFFFF" opacity={0.75} />
+      <Circle cx={73.2} cy={58.8} r={1.3} fill="#FFFFFF" opacity={0.75} />
     </Svg>
   );
 }

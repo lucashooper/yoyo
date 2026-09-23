@@ -41,6 +41,13 @@ const RECORDING_OPTIONS = {
   isMeteringEnabled: true,
 };
 
+function resolveInitiationOverrideMode(language: SupportedLanguage): InitiationOverrideMode {
+  if (language === 'russian' && env.elevenLabs.hasVoiceId) {
+    return 'language-and-voice';
+  }
+  return 'language-only';
+}
+
 const MOCK_RESPONSES: Record<SupportedLanguage, string[]> = {
   spanish: [
     '¡Hola! Me alegra practicar contigo. ¿Qué te gustaría pedir en la cafetería?',
@@ -110,8 +117,7 @@ export class ElevenLabsVoiceService {
   private agentMode = false;
   private agentOutputSampleRate = 16000;
   private agentOutputIsPcm = true;
-  private initiationOverrideMode: import('./agentDynamicVariables').InitiationOverrideMode =
-    'language-only';
+  private initiationOverrideMode: InitiationOverrideMode;
   private initiationRetried = false;
 
   constructor(
@@ -122,6 +128,7 @@ export class ElevenLabsVoiceService {
     this.language = language;
     this.scenarioPrompt = scenarioPrompt;
     this.callbacks = callbacks;
+    this.initiationOverrideMode = resolveInitiationOverrideMode(language);
   }
 
   private setState(state: VoiceSessionState) {
@@ -419,9 +426,17 @@ export class ElevenLabsVoiceService {
         this.setState('listening');
         if (!this.agentStream && !this.agentStreamPending) {
           this.agentStreamPending = true;
-          void this.startAgentStream().finally(() => {
-            this.agentStreamPending = false;
-          });
+          void this.startAgentStream()
+            .catch((err) => {
+              logger.error('voice', 'Agent mic stream failed to start', err);
+              if (this.active) {
+                this.callbacks.onError('Microphone stream failed. Tap to reconnect.');
+                this.setState('error');
+              }
+            })
+            .finally(() => {
+              this.agentStreamPending = false;
+            });
         }
         return;
       }
@@ -573,6 +588,13 @@ export class ElevenLabsVoiceService {
     }
 
     logger.info('voice', 'Starting mic PCM stream');
+
+    try {
+      await this.configureAudioMode();
+    } catch (err) {
+      logger.warn('voice', 'Audio mode setup failed before mic stream', err);
+    }
+
     this.agentStream = new AgentAudioStream();
 
     let chunksSent = 0;
@@ -864,8 +886,18 @@ export class ElevenLabsVoiceService {
         this.recorder = null;
       }
 
+      try {
+        await this.configureAudioMode();
+      } catch (err) {
+        logger.warn('voice', 'Audio mode setup failed before recording', err);
+      }
+
       this.recorder = new AudioModule.AudioRecorder(RECORDING_OPTIONS);
       await this.recorder.prepareToRecordAsync(RECORDING_OPTIONS);
+      if (!this.recorder) {
+        logger.warn('voice', 'Recorder unavailable after prepare');
+        return false;
+      }
       this.recorder.record();
       this.lastSpeechAt = Date.now();
       this.speechStartedAt = null;
@@ -1071,7 +1103,7 @@ export class ElevenLabsVoiceService {
     this.conversationReady = false;
     this.agentStreamPending = false;
     this.initiationRetried = false;
-    this.initiationOverrideMode = 'language-only';
+    this.initiationOverrideMode = resolveInitiationOverrideMode(this.language);
     this.clearAudioQueue();
 
     this.isPlayingAudio = false;

@@ -24,16 +24,16 @@ interface NobiAvatarProps {
 
 export function NobiAvatar({ state, amplitude = 0, size = 180, softAura = false }: NobiAvatarProps) {
   const breathe = useSharedValue(0);
-  const mouthOpen = useSharedValue(0.35);
+  const energy = useSharedValue(0);
   const scaleBoost = useSharedValue(0);
   const tilt = useSharedValue(0);
   const blink = useSharedValue(1);
-  const [mouth, setMouth] = useState(0.35);
+  const [energyLevel, setEnergyLevel] = useState(0);
 
   useAnimatedReaction(
-    () => mouthOpen.value,
+    () => energy.value,
     (current) => {
-      runOnJS(setMouth)(current);
+      runOnJS(setEnergyLevel)(current);
     },
   );
 
@@ -64,18 +64,19 @@ export function NobiAvatar({ state, amplitude = 0, size = 180, softAura = false 
   }, [blink]);
 
   useEffect(() => {
+    const level = Math.min(1, amplitude);
+
     if (softAura) {
-      mouthOpen.value = withTiming(0.35, { duration: 200 });
+      energy.value = withTiming(0, { duration: 200 });
       return;
     }
 
-    const level = Math.min(1, amplitude);
-    if (state === 'speaking') {
-      mouthOpen.value = withTiming(0.35 + level * 0.55, { duration: 90 });
-    } else if (state === 'user_speaking') {
-      mouthOpen.value = withTiming(0.42, { duration: 120 });
+    if (state === 'speaking' || state === 'user_speaking') {
+      energy.value = withTiming(0.35 + level * 0.65, { duration: 90 });
+    } else if (state === 'thinking') {
+      energy.value = withTiming(0.25, { duration: 180 });
     } else {
-      mouthOpen.value = withTiming(0.32, { duration: 180 });
+      energy.value = withTiming(0.08, { duration: 220 });
     }
 
     scaleBoost.value = withSpring(
@@ -83,7 +84,7 @@ export function NobiAvatar({ state, amplitude = 0, size = 180, softAura = false 
       { damping: 14, stiffness: 180 },
     );
     tilt.value = withSpring(state === 'thinking' ? -2 : 0, { damping: 12, stiffness: 120 });
-  }, [amplitude, mouthOpen, scaleBoost, softAura, state, tilt]);
+  }, [amplitude, energy, scaleBoost, softAura, state, tilt]);
 
   const wrapStyle = useAnimatedStyle(() => ({
     transform: [
@@ -96,7 +97,7 @@ export function NobiAvatar({ state, amplitude = 0, size = 180, softAura = false 
   return (
     <View style={[styles.wrapper, { width: size, height: size }]}>
       <Animated.View style={[styles.inner, wrapStyle]}>
-        <NobiMascotSvg size={size} mouthOpen={mouth} />
+        <NobiMascotSvg size={size} energy={energyLevel} />
       </Animated.View>
     </View>
   );

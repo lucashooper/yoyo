@@ -4,6 +4,7 @@ import { arrayBufferToBase64 } from './audioEncoding';
 import { logger } from './logger';
 
 const STREAM_BUFFER_EVENT = 'audioStreamBuffer';
+const DEFAULT_SAMPLE_RATE = 16000;
 
 export type PcmChunkHandler = (chunk: {
   base64: string;
@@ -19,40 +20,55 @@ export class AgentAudioStream {
   async start(onChunk: PcmChunkHandler): Promise<void> {
     await this.stop();
 
+    const stream = new AudioModule.AudioStream({
+      sampleRate: DEFAULT_SAMPLE_RATE,
+      channels: 1,
+      encoding: 'int16',
+    });
+    this.stream = stream;
+
+    let chunkCount = 0;
+
     try {
-      this.stream = new AudioModule.AudioStream({
-        sampleRate: 16000,
-        channels: 1,
-        encoding: 'int16',
-      });
-
-      let chunkCount = 0;
-
-      this.subscription = this.stream.addListener(
+      this.subscription = stream.addListener(
         STREAM_BUFFER_EVENT,
-        (buffer: AudioStreamBuffer) => {
+        (buffer: AudioStreamBuffer | null) => {
+          if (!buffer?.data?.byteLength) return;
+
           chunkCount += 1;
           const amplitude = pcmAmplitude(buffer.data);
+          const sampleRate =
+            buffer?.sampleRate ?? stream?.sampleRate ?? this.stream?.sampleRate ?? DEFAULT_SAMPLE_RATE;
+
           if (chunkCount === 1) {
             logger.info('agentAudioStream', 'First PCM buffer received', {
               bytes: buffer.data.byteLength,
               amplitude: Number(amplitude.toFixed(3)),
+              sampleRate,
             });
           }
+
           onChunk({
             base64: arrayBufferToBase64(buffer.data),
             amplitude,
-            sampleRate: buffer.sampleRate,
+            sampleRate,
           });
         },
       );
 
-      await this.stream.start();
+      await stream.start();
+
+      const activeStream = this.stream;
+      if (!activeStream) {
+        throw new Error('Audio stream was released before initialization finished');
+      }
+
       logger.info('agentAudioStream', 'PCM stream started', {
-        sampleRate: this.stream.sampleRate,
-        channels: this.stream.channels,
+        sampleRate: activeStream?.sampleRate ?? DEFAULT_SAMPLE_RATE,
+        channels: activeStream?.channels ?? 1,
       });
     } catch (err) {
+      await this.stop();
       logger.error('agentAudioStream', 'Failed to start PCM stream — check mic permission', err);
       throw err;
     }
@@ -85,6 +101,5 @@ function pcmAmplitude(data: ArrayBuffer): number {
   }
 
   const rms = Math.sqrt(sum / samples.length);
-  // Blend peak + RMS so quiet speech still moves the wave UI
   return Math.min(1, Math.max(rms * 10, peak * 6));
 }

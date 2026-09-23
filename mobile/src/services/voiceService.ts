@@ -73,9 +73,20 @@ function matchesLanguage(voice: ElevenLabsVoice, language: SupportedLanguage): b
   return hints.some((hint) => haystack.includes(hint));
 }
 
+/**
+ * Resolve ElevenLabs voice for a language.
+ * Russian explicitly uses EXPO_PUBLIC_ELEVENLABS_VOICE_ID when configured.
+ */
 export async function getVoiceForLanguage(
   language: SupportedLanguage,
 ): Promise<{ voiceId: string; name: string }> {
+  if (language === 'russian' && env.elevenLabs.hasVoiceId) {
+    return {
+      voiceId: env.elevenLabs.voiceId,
+      name: 'Nobi Russian',
+    };
+  }
+
   const voices = await fetchVoices();
   const match = voices.find((v) => matchesLanguage(v, language));
   if (match) {
