@@ -20,12 +20,13 @@ import type { TranscriptEntry } from '../types';
 
 interface TranscriptDrawerProps {
   entries: TranscriptEntry[];
+  minimal?: boolean;
 }
 
 const COLLAPSED = 44;
 const EXPANDED = 300;
 
-export function TranscriptDrawer({ entries }: TranscriptDrawerProps) {
+export function TranscriptDrawer({ entries, minimal = false }: TranscriptDrawerProps) {
   const [expanded, setExpanded] = useState(false);
   const [showTranslation, setShowTranslation] = useState(false);
   const height = useSharedValue(COLLAPSED);
@@ -55,9 +56,16 @@ export function TranscriptDrawer({ entries }: TranscriptDrawerProps) {
 
   return (
     <GestureDetector gesture={pan}>
-      <Animated.View style={[styles.drawer, drawerStyle]}>
+      <Animated.View style={[styles.drawer, minimal && styles.drawerMinimal, drawerStyle]}>
         <Pressable style={styles.handle} onPress={() => toggle(!expanded)}>
-          <Text style={styles.handleText}>^ Swipe up for transcript</Text>
+          {minimal ? (
+            <>
+              <Text style={styles.chevronMinimal}>^</Text>
+              <Text style={styles.handleMinimal}>Transcript</Text>
+            </>
+          ) : (
+            <Text style={styles.handleText}>^ Swipe up for transcript</Text>
+          )}
         </Pressable>
 
         {expanded && (
@@ -108,20 +116,38 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
     marginHorizontal: 12,
     marginBottom: 8,
-    backgroundColor: 'rgba(249, 250, 252, 0.82)',
+    backgroundColor: colors.surface + 'D9',
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.6)',
+    borderColor: colors.border,
+  },
+  drawerMinimal: {
+    marginHorizontal: 0,
+    backgroundColor: colors.canvas,
+    borderWidth: 0,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: colors.border,
+    borderTopLeftRadius: 0,
+    borderTopRightRadius: 0,
   },
   handle: {
     alignItems: 'center',
     paddingTop: 12,
     paddingBottom: 6,
   },
-  handleText: {
+  chevronMinimal: {
+    color: colors.primary,
     fontSize: 12,
+    lineHeight: 12,
+  },
+  handleMinimal: {
+    ...typography.label,
+    color: colors.primary,
+    marginTop: 2,
+  },
+  handleText: {
+    ...typography.tiny,
     letterSpacing: 0.3,
-    color: '#6B7280',
-    fontWeight: '500',
+    color: colors.textMuted,
   },
   toolbar: {
     flexDirection: 'row',
@@ -132,7 +158,7 @@ const styles = StyleSheet.create({
   },
   toolbarLabel: {
     ...typography.label,
-    color: '#6B7280',
+    color: colors.textMuted,
     fontSize: 12,
   },
   scroll: {
@@ -144,11 +170,10 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   empty: {
-    fontSize: 12,
-    color: '#9CA3AF',
+    ...typography.tiny,
+    color: colors.textLight,
     textAlign: 'center',
     paddingTop: 12,
-    letterSpacing: 0.2,
   },
   bubble: {
     borderRadius: 16,
@@ -157,11 +182,11 @@ const styles = StyleSheet.create({
   },
   userBubble: {
     alignSelf: 'flex-end',
-    backgroundColor: 'rgba(108, 92, 231, 0.12)',
+    backgroundColor: colors.primarySoft,
   },
   aiBubble: {
     alignSelf: 'flex-start',
-    backgroundColor: 'rgba(255, 255, 255, 0.65)',
+    backgroundColor: colors.surfaceMuted,
   },
   bubbleText: {
     ...typography.body,
@@ -169,10 +194,9 @@ const styles = StyleSheet.create({
     fontSize: 15,
   },
   translation: {
-    fontSize: 11,
-    color: '#6B7280',
+    ...typography.tiny,
+    color: colors.textMuted,
     marginTop: 6,
     fontStyle: 'italic',
-    letterSpacing: 0.2,
   },
 });

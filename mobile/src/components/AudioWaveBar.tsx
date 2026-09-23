@@ -5,14 +5,15 @@ import Animated, {
   useAnimatedStyle,
   useSharedValue,
   withSpring,
-  withTiming,
 } from 'react-native-reanimated';
+import { colors } from '../theme/colors';
+
 interface AudioWaveBarProps {
   amplitude: number;
   active?: boolean;
 }
 
-const BAR_COUNT = 16;
+const BAR_COUNT = 20;
 
 function WaveBar({
   level,
@@ -22,16 +23,22 @@ function WaveBar({
   index: number;
 }) {
   const style = useAnimatedStyle(() => ({
-    height: withTiming(4 + level.value * 28, { duration: 80 }),
-    opacity: 0.35 + level.value * 0.5,
+    height: 6 + level.value * 52,
+    opacity: 0.35 + level.value * 0.65,
   }));
+
+  const mid = BAR_COUNT / 2;
+  const dist = Math.abs(index - mid) / mid;
 
   return (
     <Animated.View
       style={[
         styles.bar,
         style,
-        { backgroundColor: index % 2 === 0 ? '#9CA3AF' : '#6B7280' },
+        {
+          backgroundColor:
+            dist < 0.35 ? colors.waveActive : dist < 0.7 ? colors.primaryLight : colors.waveIdle,
+        },
       ]}
     />
   );
@@ -54,25 +61,32 @@ export function AudioWaveBar({ amplitude, active = true }: AudioWaveBarProps) {
   const l13 = useSharedValue(0.1);
   const l14 = useSharedValue(0.1);
   const l15 = useSharedValue(0.1);
+  const l16 = useSharedValue(0.1);
+  const l17 = useSharedValue(0.1);
+  const l18 = useSharedValue(0.1);
+  const l19 = useSharedValue(0.1);
 
-  const levels = useMemo(
-    () => [l0, l1, l2, l3, l4, l5, l6, l7, l8, l9, l10, l11, l12, l13, l14, l15],
-    [l0, l1, l2, l3, l4, l5, l6, l7, l8, l9, l10, l11, l12, l13, l14, l15],
+  const bars = useMemo(
+    () => [
+      l0, l1, l2, l3, l4, l5, l6, l7, l8, l9, l10, l11, l12, l13, l14, l15, l16, l17, l18, l19,
+    ],
+    [l0, l1, l2, l3, l4, l5, l6, l7, l8, l9, l10, l11, l12, l13, l14, l15, l16, l17, l18, l19],
   );
 
   useEffect(() => {
-    levels.forEach((level, index) => {
-      const offset = Math.sin((index / BAR_COUNT) * Math.PI * 2 + Date.now() / 300);
+    bars.forEach((level, index) => {
+      const offset = Math.sin((index / BAR_COUNT) * Math.PI * 2 + Date.now() / 280);
+      const boosted = Math.min(1, amplitude * 1.5);
       const target = active
-        ? Math.max(0.08, Math.min(1, amplitude * (0.55 + Math.abs(offset) * 0.45)))
+        ? Math.max(0.12, Math.min(1, boosted * (0.65 + Math.abs(offset) * 0.35)))
         : 0.08;
-      level.value = withSpring(target, { damping: 16, stiffness: 200 });
+      level.value = withSpring(target, { damping: 16, stiffness: 210 });
     });
-  }, [amplitude, active, levels]);
+  }, [amplitude, active, bars]);
 
   return (
     <View style={styles.container}>
-      {levels.map((level, index) => (
+      {bars.map((level, index) => (
         <WaveBar key={index} level={level} index={index} />
       ))}
     </View>
@@ -84,12 +98,13 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 3,
-    height: 36,
-    paddingHorizontal: 20,
+    gap: 4,
+    height: 64,
+    paddingHorizontal: 24,
+    marginVertical: 8,
   },
   bar: {
-    width: 3,
-    borderRadius: 3,
+    width: 4,
+    borderRadius: 4,
   },
 });

@@ -7,11 +7,12 @@
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
     "scheme": "nobi",
-    "newArchEnabled": true,
     "ios": {
       "supportsTablet": true,
+      "bundleIdentifier": "com.crupid.nobi",
       "infoPlist": {
-        "NSMicrophoneUsageDescription": "Nobi needs microphone access for voice conversations."
+        "NSMicrophoneUsageDescription": "Nobi needs microphone access for voice conversations.",
+        "ITSAppUsesNonExemptEncryption": false
       }
     },
     "android": {
@@ -21,7 +22,13 @@
         "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
       },
-      "permissions": ["RECORD_AUDIO"],
+      "permissions": [
+        "RECORD_AUDIO",
+        "android.permission.RECORD_AUDIO",
+        "android.permission.MODIFY_AUDIO_SETTINGS",
+        "android.permission.FOREGROUND_SERVICE",
+        "android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK"
+      ],
       "predictiveBackGestureEnabled": false
     },
     "web": {
@@ -32,11 +39,19 @@
       "expo-router",
       "expo-secure-store",
       [
-        "expo-av",
+        "expo-audio",
         {
           "microphonePermission": "Nobi needs microphone access for voice conversations."
         }
-      ]
+      ],
+      "expo-asset"
     ],
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "e6c46abf-9aca-4c34-a5cf-d4c25b6b0f5c"
+      }
+    },
+    "owner": "crupid4s-team"
   }
 }

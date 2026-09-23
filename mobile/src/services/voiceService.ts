@@ -1,7 +1,5 @@
+import { env } from '../config/env';
 import type { SupportedLanguage } from '../types';
-
-const API_KEY = process.env.EXPO_PUBLIC_ELEVENLABS_API_KEY ?? '';
-const DEFAULT_VOICE_ID = process.env.EXPO_PUBLIC_ELEVENLABS_VOICE_ID ?? '';
 
 export interface ElevenLabsVoice {
   voice_id: string;
@@ -38,14 +36,14 @@ let cachedVoices: ElevenLabsVoice[] | null = null;
 export async function fetchVoices(): Promise<ElevenLabsVoice[]> {
   if (cachedVoices) return cachedVoices;
 
-  if (!API_KEY || API_KEY.includes('your_')) {
+  if (!env.elevenLabs.hasApiKey) {
     cachedVoices = [];
     return cachedVoices;
   }
 
   try {
     const response = await fetch('https://api.elevenlabs.io/v1/voices', {
-      headers: { 'xi-api-key': API_KEY },
+      headers: { 'xi-api-key': env.elevenLabs.apiKey },
     });
 
     if (!response.ok) {
@@ -75,22 +73,32 @@ function matchesLanguage(voice: ElevenLabsVoice, language: SupportedLanguage): b
   return hints.some((hint) => haystack.includes(hint));
 }
 
+/**
+ * Resolve ElevenLabs voice for a language.
+ * Russian explicitly uses EXPO_PUBLIC_ELEVENLABS_VOICE_ID when configured.
+ */
 export async function getVoiceForLanguage(
   language: SupportedLanguage,
 ): Promise<{ voiceId: string; name: string }> {
+  if (language === 'russian' && env.elevenLabs.hasVoiceId) {
+    return {
+      voiceId: env.elevenLabs.voiceId,
+      name: 'Nobi Russian',
+    };
+  }
+
   const voices = await fetchVoices();
   const match = voices.find((v) => matchesLanguage(v, language));
-
   if (match) {
     return { voiceId: match.voice_id, name: match.name };
   }
 
+  if (env.elevenLabs.hasVoiceId) {
+    return { voiceId: env.elevenLabs.voiceId, name: 'Nobi voice' };
+  }
+
   const mascot = MASCOT_VOICES[language];
   if (mascot) return mascot;
-
-  if (DEFAULT_VOICE_ID) {
-    return { voiceId: DEFAULT_VOICE_ID, name: 'Default voice' };
-  }
 
   return MASCOT_VOICES.english;
 }

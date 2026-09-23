@@ -4,6 +4,10 @@ import { ActivityIndicator, StyleSheet, View } from 'react-native';
 import { getOnboarding } from '../src/services/storage';
 import { colors } from '../src/theme/colors';
 
+/**
+ * Boot gate: first launch → onboarding; returning users land on Home
+ * (session is started intentionally from a scenario).
+ */
 export default function Index() {
   const [ready, setReady] = useState(false);
   const [hasOnboarding, setHasOnboarding] = useState(false);
@@ -23,7 +27,7 @@ export default function Index() {
     );
   }
 
-  return <Redirect href={hasOnboarding ? '/session' : '/onboarding'} />;
+  return <Redirect href={hasOnboarding ? '/home' : '/onboarding'} />;
 }
 
 const styles = StyleSheet.create({

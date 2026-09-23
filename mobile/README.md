@@ -28,7 +28,31 @@ npm install
 cp .env.example .env.local
 ```
 
-Edit `.env.local` with your keys (**never commit this file**):
+Edit **`mobile/.env.local`** with your keys (**never commit this file**).
+
+**Important:** the file must sit next to `mobile/package.json` — **not** inside `mobile/app/`, and not at the repo root:
+
+```
+mobile/
+  package.json
+  .env.local   ← here
+  app/         ← NOT here
+```
+
+```bash
+# from repo root
+cp mobile/.env.example mobile/.env.local
+```
+
+After adding or changing keys, restart Metro with a clean cache:
+
+```bash
+npm run start:tunnel -- --clear
+```
+
+On launch, check the Metro log for `[Nobi:env] Credential diagnostics` — it shows whether keys were loaded (masked).
+
+Example `.env.local`:
 
 ```env
 EXPO_PUBLIC_ELEVENLABS_API_KEY=sk_...
@@ -44,12 +68,43 @@ When env vars are missing, Nobi runs in **demo mode** with simulated conversatio
 
 ```bash
 npm start          # Expo dev server
+npm run start:tunnel  # Dev server with tunnel (recommended over --tunnel alone)
 npm run ios        # iOS simulator (macOS)
 npm run android    # Android emulator
 npm run web        # Web preview
 npm run typecheck  # TypeScript check
 npm run export     # Production web export
 ```
+
+### Tunnel mode (Expo Go on a different network)
+
+`expo start --tunnel` uses legacy **ngrok v2**, which ngrok's API no longer supports reliably. You may see:
+
+```text
+CommandError: TypeError: Cannot read properties of undefined (reading 'body')
+```
+
+Reinstalling `@expo/ngrok` will not fix this — the bundled ngrok agent is too old.
+
+**Use Expo's v2 WebSocket tunnel instead** (SDK 57+):
+
+```bash
+npm run start:tunnel
+# or manually:
+EXPO_UNSTABLE_TUNNEL_V2=1 npx expo start --tunnel
+```
+
+On first use, log in to Expo so the CLI can mint a signed tunnel URL:
+
+```bash
+npx expo login
+```
+
+The QR code will point at an `*.on.expo.app` URL instead of ngrok.
+
+**Same Wi‑Fi?** Skip tunnel entirely — `npm start` and scan the LAN QR code (press `s` to switch connection type if needed).
+
+**Windows (cmd):** `set EXPO_UNSTABLE_TUNNEL_V2=1 && npx expo start --tunnel`
 
 ### Why the cloud preview QR won't work
 
