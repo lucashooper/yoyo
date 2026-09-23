@@ -42,10 +42,19 @@ const RECORDING_OPTIONS = {
 };
 
 function resolveInitiationOverrideMode(language: SupportedLanguage): InitiationOverrideMode {
+  // Agent Security often blocks language override — send voice_id only for Russian.
   if (language === 'russian' && env.elevenLabs.hasVoiceId) {
-    return 'language-and-voice';
+    return 'voice-only';
   }
-  return 'language-only';
+  return 'none';
+}
+
+function sendsVoiceOverride(mode: InitiationOverrideMode): boolean {
+  return mode === 'voice-only' || mode === 'language-and-voice';
+}
+
+function isOverrideRejection(reason: string): boolean {
+  return /not allowed by config|override for field/i.test(reason);
 }
 
 const MOCK_RESPONSES: Record<SupportedLanguage, string[]> = {
@@ -118,7 +127,6 @@ export class ElevenLabsVoiceService {
   private agentOutputSampleRate = 16000;
   private agentOutputIsPcm = true;
   private initiationOverrideMode: InitiationOverrideMode;
-  private initiationRetried = false;
 
   constructor(
     language: SupportedLanguage,
@@ -249,10 +257,9 @@ export class ElevenLabsVoiceService {
         dynamicVariables: initiation.dynamic_variables,
         overrideMode,
         agentLanguage: initiation.conversation_config_override?.agent?.language,
-        voiceId:
-          overrideMode === 'language-and-voice'
-            ? `${voice.voiceId.slice(0, 8)}…`
-            : '(dashboard default)',
+        voiceId: sendsVoiceOverride(overrideMode)
+          ? `${voice.voiceId.slice(0, 8)}…`
+          : '(dashboard default)',
         voiceName: voice.name,
       });
       if (this.ws?.readyState !== WebSocket.OPEN) {
@@ -268,16 +275,32 @@ export class ElevenLabsVoiceService {
   }
 
   private downgradeInitiationOverride(reason: string): InitiationOverrideMode | null {
-    if (reason.includes('voice_id') && this.initiationOverrideMode === 'language-and-voice') {
+    const lower = reason.toLowerCase();
+    const mode = this.initiationOverrideMode;
+
+    if (lower.includes('language') && mode === 'language-and-voice') {
+      return 'voice-only';
+    }
+    if (lower.includes('voice_id') && mode === 'language-and-voice') {
       return 'language-only';
     }
-    if (
-      (reason.includes('language') || reason.includes('voice_id')) &&
-      this.initiationOverrideMode !== 'none'
-    ) {
+    if (lower.includes('language') && mode === 'language-only') {
+      return this.language === 'russian' && env.elevenLabs.hasVoiceId ? 'voice-only' : 'none';
+    }
+    if (lower.includes('voice_id') && (mode === 'voice-only' || mode === 'language-only')) {
+      return 'none';
+    }
+    if ((lower.includes('language') || lower.includes('voice_id')) && mode !== 'none') {
       return 'none';
     }
     return null;
+  }
+
+  private tryDowngradeInitiation(reason: string): boolean {
+    const next = this.downgradeInitiationOverride(reason);
+    if (next == null || next === this.initiationOverrideMode) return false;
+    this.initiationOverrideMode = next;
+    return true;
   }
 
   private async connectWebSocket(): Promise<void> {
@@ -337,13 +360,14 @@ export class ElevenLabsVoiceService {
         void this.agentStream?.stop();
         this.agentStream = null;
 
-        if (this.active && this.agentMode && isErrorClose) {
-          const downgrade = !this.initiationRetried ? this.downgradeInitiationOverride(reason) : null;
-          if (downgrade != null) {
-            this.initiationRetried = true;
-            this.initiationOverrideMode = downgrade;
+        if (this.active && this.agentMode && (isErrorClose || isOverrideRejection(reason))) {
+          if (this.tryDowngradeInitiation(reason)) {
             this.ws = null;
-            logger.warn('voice', 'Retrying with reduced overrides', { mode: downgrade, reason });
+            this.agentStreamPending = false;
+            logger.warn('voice', 'Retrying with reduced overrides', {
+              mode: this.initiationOverrideMode,
+              reason,
+            });
             void this.connectWebSocket();
             return;
           }
@@ -429,7 +453,7 @@ export class ElevenLabsVoiceService {
           void this.startAgentStream()
             .catch((err) => {
               logger.error('voice', 'Agent mic stream failed to start', err);
-              if (this.active) {
+              if (this.active && this.conversationReady && this.ws?.readyState === WebSocket.OPEN) {
                 this.callbacks.onError('Microphone stream failed. Tap to reconnect.');
                 this.setState('error');
               }
@@ -575,6 +599,8 @@ export class ElevenLabsVoiceService {
   }
 
   private async startAgentStream(): Promise<void> {
+    if (!this.active) return;
+
     if (this.ws?.readyState !== WebSocket.OPEN) {
       logger.warn('voice', 'Skipping mic stream — WebSocket not open', {
         readyState: this.ws?.readyState,
@@ -1102,7 +1128,6 @@ export class ElevenLabsVoiceService {
     this.agentMode = false;
     this.conversationReady = false;
     this.agentStreamPending = false;
-    this.initiationRetried = false;
     this.initiationOverrideMode = resolveInitiationOverrideMode(this.language);
     this.clearAudioQueue();
 

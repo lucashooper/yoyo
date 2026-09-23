@@ -58,14 +58,10 @@ export class AgentAudioStream {
 
       await stream.start();
 
-      const activeStream = this.stream;
-      if (!activeStream) {
-        throw new Error('Audio stream was released before initialization finished');
-      }
-
+      // Use the local stream ref — stop() may clear this.stream during reconnect races.
       logger.info('agentAudioStream', 'PCM stream started', {
-        sampleRate: activeStream?.sampleRate ?? DEFAULT_SAMPLE_RATE,
-        channels: activeStream?.channels ?? 1,
+        sampleRate: stream?.sampleRate ?? DEFAULT_SAMPLE_RATE,
+        channels: stream?.channels ?? 1,
       });
     } catch (err) {
       await this.stop();

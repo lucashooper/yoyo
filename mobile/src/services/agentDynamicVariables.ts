@@ -14,7 +14,11 @@ function languageLabel(lang: SupportedLanguage): string {
 }
 
 /** Which ElevenLabs Security overrides the agent allows */
-export type InitiationOverrideMode = 'language-and-voice' | 'language-only' | 'none';
+export type InitiationOverrideMode =
+  | 'language-and-voice'
+  | 'language-only'
+  | 'voice-only'
+  | 'none';
 
 export interface AgentInitiationPayload {
   type: 'conversation_initiation_client_data';
@@ -27,13 +31,13 @@ export interface AgentInitiationPayload {
 
 /**
  * Build conversation_initiation_client_data for ElevenLabs ConvAI.
- * Default `language-only` — voice_id override requires Agent → Security permission.
+ * Language/voice overrides require Agent → Security permissions.
  */
 export function buildAgentInitiationPayload(
   language: SupportedLanguage,
   scenarioPrompt: string,
   voiceId: string,
-  overrideMode: InitiationOverrideMode = 'language-only',
+  overrideMode: InitiationOverrideMode = 'none',
 ): AgentInitiationPayload {
   const label = languageLabel(language);
 
@@ -55,7 +59,7 @@ export function buildAgentInitiationPayload(
     };
   }
 
-  if (overrideMode === 'language-and-voice') {
+  if (overrideMode === 'voice-only' || overrideMode === 'language-and-voice') {
     payload.conversation_config_override.tts = { voice_id: voiceId };
   }
 
