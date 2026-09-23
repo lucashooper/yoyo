@@ -11,7 +11,7 @@
     "typecheck": "tsc --noEmit",
     "verify:voice-init": "node scripts/verify-agent-initiation.mjs",
     "export": "expo export --platform web",
-    "build:testflight": "EXPO_TOKEN=J78SzbxLQf7n_8rsRix1cNU0M7Rr7m9cM0A-froX eas build --platform ios --profile production --auto-submit --non-interactive"
+    "build:testflight": "EXPO_TOKEN=g0GVY_dDDfAaysecBtbWinyemOZSSrvXu07h1wbs eas build --platform ios --profile production --auto-submit --non-interactive"
   },
   "dependencies": {
     "@expo/ngrok": "^4.1.3",
