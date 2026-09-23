@@ -9,6 +9,7 @@
     "scheme": "nobi",
     "ios": {
       "supportsTablet": true,
+      "bundleIdentifier": "com.crupid.nobi",
       "infoPlist": {
         "NSMicrophoneUsageDescription": "Nobi needs microphone access for voice conversations."
       }
@@ -21,7 +22,11 @@
         "monochromeImage": "./assets/android-icon-monochrome.png"
       },
       "permissions": [
-        "RECORD_AUDIO"
+        "RECORD_AUDIO",
+        "android.permission.RECORD_AUDIO",
+        "android.permission.MODIFY_AUDIO_SETTINGS",
+        "android.permission.FOREGROUND_SERVICE",
+        "android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK"
       ],
       "predictiveBackGestureEnabled": false
     },
@@ -39,6 +44,13 @@
         }
       ],
       "expo-asset"
-    ]
+    ],
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "0af280e2-1c44-4d51-991c-faf950361129"
+      }
+    },
+    "owner": "crupid"
   }
 }

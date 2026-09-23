@@ -1,4 +1,6 @@
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
+import { AppState } from 'react-native';
 import { env } from '../config/env';
 import type { SessionLog, UserProfile } from '../types';
 import {
@@ -13,16 +15,33 @@ const supabaseUrl = env.supabase.url;
 const supabaseAnonKey = env.supabase.anonKey;
 
 let client: SupabaseClient | null = null;
+let authLifecycleBound = false;
+
+function bindAuthLifecycle(supabase: SupabaseClient): void {
+  if (authLifecycleBound) return;
+  authLifecycleBound = true;
+
+  AppState.addEventListener('change', (state) => {
+    if (state === 'active') {
+      void supabase.auth.startAutoRefresh();
+    } else {
+      void supabase.auth.stopAutoRefresh();
+    }
+  });
+}
 
 function getClient(): SupabaseClient | null {
   if (!isSupabaseConfigured) return null;
   if (!client) {
     client = createClient(supabaseUrl, supabaseAnonKey, {
       auth: {
+        storage: AsyncStorage,
         persistSession: true,
         autoRefreshToken: true,
+        detectSessionInUrl: false,
       },
     });
+    bindAuthLifecycle(client);
   }
   return client;
 }
@@ -32,6 +51,11 @@ export async function signInAnonymously(): Promise<{ userId: string; isMock: boo
   if (!supabase) {
     const profile = await getProfile();
     return { userId: profile.id, isMock: true };
+  }
+
+  const { data: existing } = await supabase.auth.getSession();
+  if (existing.session?.user) {
+    return { userId: existing.session.user.id, isMock: false };
   }
 
   const { data, error } = await supabase.auth.signInAnonymously();
