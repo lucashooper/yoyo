@@ -11,7 +11,8 @@
       "supportsTablet": true,
       "bundleIdentifier": "com.crupid.nobi",
       "infoPlist": {
-        "NSMicrophoneUsageDescription": "Nobi needs microphone access for voice conversations."
+        "NSMicrophoneUsageDescription": "Nobi needs microphone access for voice conversations.",
+        "ITSAppUsesNonExemptEncryption": false
       }
     },
     "android": {
